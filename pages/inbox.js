@@ -11,18 +11,37 @@ export default function Inbox() {
   const [expandedMessageIds, setExpandedMessageIds] = useState([]);
   const [hiddenThreadIds, setHiddenThreadIds] = useState([]);
   const [unreadThreadIds, setUnreadThreadIds] = useState([]);
+  const [loadError, setLoadError] = useState('');
 
   const load = async () => {
     setLoading(true);
-    const res = await fetch('/api/emails?direction=inbound');
-    const data = await res.json();
-    const loadedEmails = (data.emails || []).map((email) => ({
-      ...email,
-      attachments: Array.isArray(email.attachments) ? email.attachments : [],
-    }));
-    setEmails(loadedEmails);
-    setUnreadThreadIds([...new Set(loadedEmails.filter((email) => email.direction === 'inbound' && !email.read).map((email) => email.thread_id))]);
-    setLoading(false);
+    setLoadError('');
+    try {
+      const res = await fetch('/api/emails?direction=inbound');
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        console.error('Failed to load inbox:', res.status, data);
+        setLoadError(data.error || `Failed to load inbox (${res.status})`);
+        setEmails([]);
+        setUnreadThreadIds([]);
+        return;
+      }
+
+      const loadedEmails = (data.emails || []).map((email) => ({
+        ...email,
+        attachments: Array.isArray(email.attachments) ? email.attachments : [],
+      }));
+      setEmails(loadedEmails);
+      setUnreadThreadIds([...new Set(loadedEmails.filter((email) => email.direction === 'inbound' && !email.read).map((email) => email.thread_id))]);
+    } catch (error) {
+      console.error('Network error loading inbox:', error);
+      setLoadError('Network error while loading inbox.');
+      setEmails([]);
+      setUnreadThreadIds([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -177,7 +196,8 @@ export default function Inbox() {
         </div>
 
         {loading && <p style={styles.dim}>Loading…</p>}
-        {!loading && visibleThreads.length === 0 && <p style={styles.dim}>No emails match your search.</p>}
+        {!loading && loadError && <p style={{ ...styles.dim, color: '#fca5a5' }}>{loadError}</p>}
+        {!loading && !loadError && visibleThreads.length === 0 && <p style={styles.dim}>No emails match your search.</p>}
 
         {visibleThreads.map((thread) => {
           const latest = thread[thread.length - 1];
