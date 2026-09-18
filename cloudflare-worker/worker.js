@@ -23,11 +23,11 @@ export default {
         })),
       };
 
-      const res = await fetch(env.INBOUND_WEBHOOK_URL, {
+      const res = await fetch(env.inbound_webhook_url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-inbound-secret': env.INBOUND_SHARED_SECRET,
+          'x-inbound-secret': env.inbound_shared_secret,
         },
         body: JSON.stringify(payload),
       });
