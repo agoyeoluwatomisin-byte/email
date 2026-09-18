@@ -6,6 +6,7 @@ export default function Inbox() {
   const [selectedThread, setSelectedThread] = useState(null);
   const [replyText, setReplyText] = useState('');
   const [sending, setSending] = useState(false);
+  const [replyError, setReplyError] = useState('');
 
   const load = async () => {
     setLoading(true);
@@ -36,24 +37,47 @@ export default function Inbox() {
 
   const handleReply = async (e) => {
     e.preventDefault();
-    if (!replyText.trim() || !lastInbound) return;
+    const trimmedReply = replyText.trim();
+
+    if (!lastInbound) {
+      setReplyError('Select a message to reply to.');
+      return;
+    }
+
+    if (!trimmedReply) {
+      setReplyError('Reply cannot be empty.');
+      return;
+    }
+
+    setReplyError('');
     setSending(true);
 
-    await fetch('/api/reply', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        threadId: lastInbound.thread_id,
-        to: lastInbound.from_address,
-        subject: lastInbound.subject,
-        message: replyText,
-        inReplyToMessageId: lastInbound.message_id,
-      }),
-    });
+    try {
+      const res = await fetch('/api/reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          threadId: lastInbound.thread_id,
+          to: lastInbound.from_address,
+          subject: lastInbound.subject,
+          message: trimmedReply,
+          inReplyToMessageId: lastInbound.message_id,
+        }),
+      });
 
-    setReplyText('');
-    setSending(false);
-    load();
+      const payload = await res.json();
+      if (!res.ok) {
+        setReplyError(payload.error || 'Unable to send the reply.');
+        return;
+      }
+
+      setReplyText('');
+      await load();
+    } catch (error) {
+      setReplyError('Network error. Please try again.');
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -110,17 +134,27 @@ export default function Inbox() {
               ))}
             </div>
 
+            <div style={styles.replyHeader}>
+              <strong>Reply to:</strong>{' '}
+              {lastInbound?.from_address || 'selected sender'}
+            </div>
+
             <form onSubmit={handleReply} style={styles.replyForm}>
               <textarea
                 style={styles.textarea}
                 placeholder="Write a reply…"
                 value={replyText}
-                onChange={(e) => setReplyText(e.target.value)}
+                onChange={(e) => {
+                  setReplyText(e.target.value);
+                  if (replyError) setReplyError('');
+                }}
               />
               <button style={styles.sendBtn} type="submit" disabled={sending || !replyText.trim()}>
                 {sending ? 'Sending…' : 'Reply'}
               </button>
             </form>
+
+            {replyError && <p style={styles.replyError}>{replyError}</p>}
           </>
         )}
       </section>
@@ -179,7 +213,16 @@ const styles = {
   messages: { display: 'flex', flexDirection: 'column', gap: 12, flex: 1, overflowY: 'auto' },
   messageBubble: { maxWidth: '70%', padding: 12, borderRadius: 10, fontSize: 14 },
   messageMeta: { fontSize: 11, opacity: 0.7, marginBottom: 4 },
-  replyForm: { display: 'flex', gap: 8, marginTop: 16 },
+  replyHeader: {
+    marginTop: 16,
+    padding: '8px 10px',
+    borderRadius: 8,
+    background: '#f8fafc',
+    border: '1px solid #e2e8f0',
+    color: '#334155',
+    fontSize: 14,
+  },
+  replyForm: { display: 'flex', gap: 8, marginTop: 12 },
   textarea: {
     flex: 1,
     minHeight: 60,
@@ -199,4 +242,5 @@ const styles = {
     fontWeight: 600,
     cursor: 'pointer',
   },
+  replyError: { color: '#dc2626', fontSize: 13, marginTop: 8, marginBottom: 0 },
 };

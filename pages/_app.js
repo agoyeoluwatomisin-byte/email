@@ -7,6 +7,7 @@ export default function App({ Component, pageProps }) {
   const navItems = [
     { href: '/', label: 'Send email' },
     { href: '/inbox', label: 'Inbox' },
+    { href: '/outbox', label: 'Outbox' },
   ];
 
   return (
