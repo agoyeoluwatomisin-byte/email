@@ -1,0 +1,50 @@
+import PostalMime from 'postal-mime';
+
+export default {
+  async email(message, env, ctx) {
+    try {
+      const buffer = await streamToArrayBuffer(message.raw, message.rawSize);
+      const parsed = await PostalMime.parse(buffer);
+
+      const payload = {
+        messageId: parsed.messageId || null,
+        inReplyTo: parsed.inReplyTo || null,
+        references: parsed.references || null,
+        from: message.from,
+        to: message.to,
+        subject: parsed.subject || '(no subject)',
+        text: parsed.text || '',
+        html: parsed.html || '',
+      };
+
+      const res = await fetch(env.INBOUND_WEBHOOK_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-inbound-secret': env.INBOUND_SHARED_SECRET,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        console.error('Webhook rejected inbound email:', res.status, await res.text());
+      }
+    } catch (err) {
+      console.error('Failed to process inbound email:', err);
+      // Don't reject the message - that would bounce it back to the sender.
+    }
+  },
+};
+
+async function streamToArrayBuffer(stream, size) {
+  const reader = stream.getReader();
+  const buffer = new Uint8Array(size);
+  let offset = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer.set(value, offset);
+    offset += value.length;
+  }
+  return buffer.buffer;
+}
