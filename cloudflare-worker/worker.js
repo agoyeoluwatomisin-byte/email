@@ -15,6 +15,12 @@ export default {
         subject: parsed.subject || '(no subject)',
         text: parsed.text || '',
         html: parsed.html || '',
+        attachments: (parsed.attachments || []).map((attachment) => ({
+          filename: attachment.filename || 'attachment',
+          mimeType: attachment.mimeType || 'application/octet-stream',
+          size: attachment.size || 0,
+          content: toBase64(attachment.content),
+        })),
       };
 
       const res = await fetch(env.INBOUND_WEBHOOK_URL, {
@@ -47,4 +53,14 @@ async function streamToArrayBuffer(stream, size) {
     offset += value.length;
   }
   return buffer.buffer;
+}
+
+function toBase64(value) {
+  if (!value) return '';
+  const bytes = value instanceof ArrayBuffer ? new Uint8Array(value) : value;
+  let binary = '';
+  for (let index = 0; index < bytes.length; index += 1) {
+    binary += String.fromCharCode(bytes[index]);
+  }
+  return btoa(binary);
 }

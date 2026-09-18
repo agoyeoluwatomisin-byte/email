@@ -2,5 +2,41 @@ html,
 body {
   padding: 0;
   margin: 0;
-  font-family: sans-serif;
+  background: #07111f;
+  color: #e5eef8;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button,
+input,
+textarea {
+  color-scheme: dark;
+}
+
+@media (max-width: 760px) {
+  .mail-layout {
+    height: auto !important;
+    min-height: calc(100vh - 68px);
+    flex-direction: column;
+  }
+
+  .mail-layout > aside {
+    width: 100% !important;
+    max-height: 46vh;
+    border-right: 0 !important;
+    border-bottom: 1px solid #29415b;
+  }
+
+  .mail-layout > section {
+    min-height: 54vh;
+    padding: 18px !important;
+  }
+
+  .mail-layout .messageBubble {
+    max-width: 92% !important;
+  }
 }

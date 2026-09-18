@@ -5,6 +5,7 @@ export default function App({ Component, pageProps }) {
   const router = useRouter();
 
   const navItems = [
+    { href: '/dashboard', label: 'Dashboard' },
     { href: '/', label: 'Send email' },
     { href: '/inbox', label: 'Inbox' },
     { href: '/outbox', label: 'Outbox' },
@@ -54,6 +55,8 @@ const styles = {
     borderBottom: '1px solid rgba(148, 163, 184, 0.25)',
     boxShadow: '0 10px 25px rgba(15, 23, 42, 0.12)',
     fontFamily: 'system-ui, -apple-system, sans-serif',
+    flexWrap: 'wrap',
+    gap: 12,
   },
   brand: {
     color: '#f8fafc',
@@ -65,6 +68,7 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: 10,
+    flexWrap: 'wrap',
   },
   navLink: {
     color: '#cbd5e1',
@@ -81,6 +85,7 @@ const styles = {
   },
   pageShell: {
     minHeight: 'calc(100vh - 68px)',
-    background: '#f8fafc',
+    background: '#07111f',
+    padding: '24px 16px 40px',
   },
 };

@@ -12,7 +12,7 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  const { messageId, inReplyTo, from, to, subject, text, html } = req.body || {};
+  const { messageId, inReplyTo, from, to, subject, text, html, attachments } = req.body || {};
 
   if (!from || !to) {
     return res.status(400).json({ error: 'from and to are required' });
@@ -45,6 +45,7 @@ export default async function handler(req, res) {
     subject,
     text_body: text,
     html_body: html,
+    attachments: Array.isArray(attachments) ? attachments.slice(0, 10) : [],
   });
 
   if (error) {

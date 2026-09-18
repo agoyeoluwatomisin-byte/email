@@ -11,11 +11,15 @@ create table if not exists emails (
   subject text,
   text_body text,
   html_body text,
+  attachments jsonb not null default '[]'::jsonb,
   received_at timestamptz not null default now(),
   read boolean not null default false
 );
 
+alter table emails add column if not exists attachments jsonb not null default '[]'::jsonb;
+
 create index if not exists emails_thread_id_idx on emails (thread_id);
+create index if not exists emails_direction_idx on emails (direction);
 create index if not exists emails_received_at_idx on emails (received_at desc);
 
 -- Row Level Security is enabled with no public policies. The app only ever
