@@ -111,6 +111,7 @@ export default function Outbox() {
 
         {visibleThreads.map((thread) => {
           const latest = thread[thread.length - 1];
+          const latestOutbound = [...thread].reverse().find((message) => message.direction === 'outbound') || latest;
           const preview = (latest?.text_body || latest?.subject || '').replace(/\s+/g, ' ').trim();
           return (
             <button
@@ -122,7 +123,7 @@ export default function Outbox() {
               }}
             >
               <div style={styles.threadTopRow}>
-                <div style={styles.threadTo}>{latest.to_address || 'Unknown recipient'}</div>
+                <div style={styles.threadTo}>{latestOutbound.to_address || 'Unknown recipient'}</div>
                 <button
                   type="button"
                   style={styles.archiveBtn}

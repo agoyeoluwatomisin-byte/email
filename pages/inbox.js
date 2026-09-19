@@ -1,13 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 
-function formatMailboxLabel(address) {
-  if (!address) return 'unknown';
-  const clean = address.trim();
-  if (!clean) return 'unknown';
-  const localPart = clean.split('@')[0];
-  return (localPart || clean).toLowerCase();
-}
-
 function parseMailboxAddresses(value) {
   const values = Array.isArray(value) ? value : String(value || '').split(/[;,]/);
 
@@ -147,19 +139,11 @@ export default function Inbox() {
 
   const mailboxGroups = useMemo(() => {
     const addresses = [...new Set(emails.flatMap((email) => email.mailboxAddresses || parseMailboxAddresses(email.to_address)))];
-    const localPartCounts = addresses.reduce((counts, address) => {
-      const localPart = formatMailboxLabel(address);
-      counts[localPart] = (counts[localPart] || 0) + 1;
-      return counts;
-    }, {});
-
     return addresses
       .map((address) => {
-        const localPart = formatMailboxLabel(address);
-        const domain = address.split('@')[1] || '';
         return {
           value: address,
-          label: localPartCounts[localPart] > 1 ? `${localPart}@${domain}` : localPart,
+          label: address,
         };
       })
       .sort((a, b) => a.label.localeCompare(b.label));
@@ -575,6 +559,7 @@ export default function Inbox() {
 
         {visibleThreads.map((thread) => {
           const latest = thread[thread.length - 1];
+          const latestInbound = [...thread].reverse().find((message) => message.direction === 'inbound') || latest;
           const isUnread = latest && latest.direction === 'inbound' && unreadThreadIds.includes(thread[0].thread_id);
           const preview = (splitEmailBody(latest?.text_body).main || latest?.subject || '').replace(/\s+/g, ' ').trim();
 
@@ -602,7 +587,7 @@ export default function Inbox() {
                   onClick={(event) => event.stopPropagation()}
                   aria-label={`Select ${latest.subject || 'conversation'}`}
                 />
-                <div style={styles.threadFrom}>{latest.from_address}</div>
+                <div style={styles.threadFrom}>{latestInbound.from_address || 'Unknown sender'}</div>
                 <span style={styles.labelBadge}>{label}</span>
                 {isUnread && <span style={styles.unreadBadge}>New</span>}
                 <button type="button" style={styles.starButton} onClick={(event) => { event.stopPropagation(); toggleThreadStar(thread[0].thread_id, isStarred); }} aria-label={isStarred ? 'Unstar conversation' : 'Star conversation'}>
