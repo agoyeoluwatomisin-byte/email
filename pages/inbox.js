@@ -1,5 +1,45 @@
 import { useEffect, useMemo, useState } from 'react';
 
+// Splits a plain-text email body into what the sender actually wrote and
+// the quoted history underneath it (Gmail/Apple Mail "On ... wrote:" chains,
+// Outlook "-----Original Message-----" blocks, and lines starting with ">").
+function splitEmailBody(text) {
+  if (!text) return { main: '', quoted: '' };
+
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  let splitIndex = -1;
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const trimmed = lines[i].trim();
+
+    if (/^On .{5,120} wrote:$/.test(trimmed)) {
+      splitIndex = i;
+      break;
+    }
+    if (/^-{2,}\s*Original Message\s*-{2,}$/i.test(trimmed)) {
+      splitIndex = i;
+      break;
+    }
+    if (/^From:\s.+/.test(trimmed) && lines[i + 1] && /^Sent:\s.+/.test(lines[i + 1].trim())) {
+      splitIndex = i;
+      break;
+    }
+    if (trimmed.startsWith('>')) {
+      splitIndex = i;
+      break;
+    }
+  }
+
+  if (splitIndex === -1) {
+    return { main: text.trim(), quoted: '' };
+  }
+
+  return {
+    main: lines.slice(0, splitIndex).join('\n').trim(),
+    quoted: lines.slice(splitIndex).join('\n').trim(),
+  };
+}
+
 export default function Inbox() {
   const [emails, setEmails] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -9,39 +49,21 @@ export default function Inbox() {
   const [replyError, setReplyError] = useState('');
   const [search, setSearch] = useState('');
   const [expandedMessageIds, setExpandedMessageIds] = useState([]);
+  const [quotedVisibleIds, setQuotedVisibleIds] = useState([]);
   const [hiddenThreadIds, setHiddenThreadIds] = useState([]);
   const [unreadThreadIds, setUnreadThreadIds] = useState([]);
-  const [loadError, setLoadError] = useState('');
 
   const load = async () => {
     setLoading(true);
-    setLoadError('');
-    try {
-      const res = await fetch('/api/emails?direction=inbound');
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        console.error('Failed to load inbox:', res.status, data);
-        setLoadError(data.error || `Failed to load inbox (${res.status})`);
-        setEmails([]);
-        setUnreadThreadIds([]);
-        return;
-      }
-
-      const loadedEmails = (data.emails || []).map((email) => ({
-        ...email,
-        attachments: Array.isArray(email.attachments) ? email.attachments : [],
-      }));
-      setEmails(loadedEmails);
-      setUnreadThreadIds([...new Set(loadedEmails.filter((email) => email.direction === 'inbound' && !email.read).map((email) => email.thread_id))]);
-    } catch (error) {
-      console.error('Network error loading inbox:', error);
-      setLoadError('Network error while loading inbox.');
-      setEmails([]);
-      setUnreadThreadIds([]);
-    } finally {
-      setLoading(false);
-    }
+    const res = await fetch('/api/emails?direction=inbound');
+    const data = await res.json();
+    const loadedEmails = (data.emails || []).map((email) => ({
+      ...email,
+      attachments: Array.isArray(email.attachments) ? email.attachments : [],
+    }));
+    setEmails(loadedEmails);
+    setUnreadThreadIds([...new Set(loadedEmails.filter((email) => email.direction === 'inbound' && !email.read).map((email) => email.thread_id))]);
+    setLoading(false);
   };
 
   useEffect(() => {
@@ -172,6 +194,12 @@ export default function Inbox() {
     );
   };
 
+  const toggleQuotedVisible = (messageId) => {
+    setQuotedVisibleIds((current) =>
+      current.includes(messageId) ? current.filter((id) => id !== messageId) : [...current, messageId]
+    );
+  };
+
   const unreadCount = unreadThreadIds.length;
 
   return (
@@ -196,8 +224,7 @@ export default function Inbox() {
         </div>
 
         {loading && <p style={styles.dim}>Loading…</p>}
-        {!loading && loadError && <p style={{ ...styles.dim, color: '#fca5a5' }}>{loadError}</p>}
-        {!loading && !loadError && visibleThreads.length === 0 && <p style={styles.dim}>No emails match your search.</p>}
+        {!loading && visibleThreads.length === 0 && <p style={styles.dim}>No emails match your search.</p>}
 
         {visibleThreads.map((thread) => {
           const latest = thread[thread.length - 1];
@@ -252,7 +279,9 @@ export default function Inbox() {
             <div style={styles.messages}>
               {activeThread.map((msg) => {
                 const isExpanded = expandedMessageIds.includes(msg.id);
-                const content = msg.text_body || '(no message content)';
+                const isQuoteVisible = quotedVisibleIds.includes(msg.id);
+                const { main, quoted } = splitEmailBody(msg.text_body);
+                const content = main || '(no message content)';
                 const body = content.length > 300 && !isExpanded ? `${content.slice(0, 300)}…` : content;
                 const attachments = Array.isArray(msg.attachments) ? msg.attachments : [];
 
@@ -271,6 +300,14 @@ export default function Inbox() {
                       {new Date(msg.received_at).toLocaleString()}
                     </div>
                     <div style={styles.messageBody}>{body}</div>
+                    {quoted && (
+                      <div style={styles.quoteBlock}>
+                        <button type="button" style={styles.quoteToggle} onClick={() => toggleQuotedVisible(msg.id)}>
+                          {isQuoteVisible ? '▾ Hide quoted text' : '▸ Show quoted text'}
+                        </button>
+                        {isQuoteVisible && <div style={styles.quotedText}>{quoted}</div>}
+                      </div>
+                    )}
                     {attachments.length > 0 && (
                       <div style={styles.attachmentList}>
                         {attachments.map((attachment, index) => (
@@ -421,6 +458,27 @@ const styles = {
   messageBubble: { maxWidth: '70%', padding: 12, borderRadius: 10, fontSize: 14 },
   messageMeta: { fontSize: 11, opacity: 0.7, marginBottom: 4 },
   messageBody: { whiteSpace: 'pre-wrap', wordBreak: 'break-word' },
+  quoteBlock: { marginTop: 10 },
+  quoteToggle: {
+    background: 'transparent',
+    border: 'none',
+    color: '#8fb3d9',
+    padding: 0,
+    fontSize: 11,
+    cursor: 'pointer',
+    opacity: 0.85,
+  },
+  quotedText: {
+    marginTop: 8,
+    paddingLeft: 10,
+    borderLeft: '2px solid #36536e',
+    color: '#9db3c9',
+    fontSize: 12.5,
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-word',
+    maxHeight: 220,
+    overflowY: 'auto',
+  },
   attachmentList: { display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 },
   attachmentItem: {
     background: '#e2e8f0',

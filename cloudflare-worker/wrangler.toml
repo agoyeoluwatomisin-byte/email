@@ -3,6 +3,19 @@ main = "worker.js"
 compatibility_date = "2024-09-23"
 workers_dev = true
 
+# ...
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+invocation_logs = true
+persist = true
+
+[observability.traces]
+enabled = false
+head_sampling_rate = 1
+persist = true
+# ...
+
 # Secrets (set these with `wrangler secret put <NAME>`, not here):
 #   INBOUND_WEBHOOK_URL     e.g. 
 #   INBOUND_SHARED_SECRET   a random string, must match the app's INBOUND_SHARED_SECRET
