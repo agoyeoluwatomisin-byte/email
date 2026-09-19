@@ -17,21 +17,23 @@ export default function App({ Component, pageProps }) {
     const preferredMode = savedTheme === 'light' ? false : true;
     setIsDarkMode(preferredMode);
 
-    const session = localStorage.getItem('email_session');
-    const isLoggedIn = Boolean(session);
     const isLoginPage = router.pathname === '/login';
 
-    setIsAuthenticated(isLoggedIn);
-    setIsReady(true);
+    fetch('/api/auth/session')
+      .then((response) => (response.ok ? response.json() : { authenticated: false }))
+      .then((session) => {
+        const isLoggedIn = Boolean(session.authenticated);
+        setIsAuthenticated(isLoggedIn);
+        setIsReady(true);
 
-    if (!isLoggedIn && !isLoginPage) {
-      router.replace('/login');
-      return;
-    }
-
-    if (isLoggedIn && isLoginPage) {
-      router.replace('/dashboard');
-    }
+        if (!isLoggedIn && !isLoginPage) router.replace('/login');
+        if (isLoggedIn && isLoginPage) router.replace('/dashboard');
+      })
+      .catch(() => {
+        setIsAuthenticated(false);
+        setIsReady(true);
+        if (!isLoginPage) router.replace('/login');
+      });
   }, [router.pathname]);
 
   useEffect(() => {
@@ -55,6 +57,13 @@ export default function App({ Component, pageProps }) {
   ];
 
   const showNav = isReady && isAuthenticated && router.pathname !== '/login';
+
+  const handleLogout = async () => {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    localStorage.removeItem('email_session');
+    setIsAuthenticated(false);
+    router.push('/login');
+  };
   const theme = isDarkMode
     ? {
         navBackground: '#0f172a',
@@ -134,6 +143,9 @@ export default function App({ Component, pageProps }) {
               className="app-theme-toggle"
             >
               {isDarkMode ? 'Light mode' : 'Dark mode'}
+            </button>
+            <button type="button" onClick={handleLogout} style={{ ...styles.themeToggle, background: theme.toggleBackground, color: theme.toggleText }}>
+              Logout
             </button>
           </div>
         </nav>

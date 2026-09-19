@@ -24,11 +24,27 @@ export default async function handler(req, res) {
   }
 
   const attachment = Array.isArray(email?.attachments) ? email.attachments[attachmentIndex] : null;
-  if (!attachment?.content) {
+  if (!attachment) {
+    return res.status(404).json({ error: 'Attachment not found' });
+  }
+
+  let content;
+  if (attachment.path) {
+    const bucket = attachment.bucket || process.env.SUPABASE_ATTACHMENTS_BUCKET || 'email-attachments';
+    const { data: file, error: downloadError } = await supabaseAdmin.storage.from(bucket).download(attachment.path);
+
+    if (downloadError || !file) {
+      console.error('Failed to download stored attachment:', downloadError);
+      return res.status(404).json({ error: 'Stored attachment is unavailable' });
+    }
+
+    content = Buffer.from(await file.arrayBuffer());
+  } else if (attachment.content) {
+    content = Buffer.from(attachment.content, 'base64');
+  } else {
     return res.status(404).json({ error: 'Attachment content is unavailable' });
   }
 
-  const content = Buffer.from(attachment.content, 'base64');
   res.setHeader('Content-Type', attachment.mimeType || attachment.contentType || 'application/octet-stream');
   res.setHeader('Content-Length', content.length);
   res.setHeader('Content-Disposition', `${req.query.download === '1' ? 'attachment' : 'inline'}; filename="${safeFilename(attachment.filename || attachment.name || 'attachment')}"`);

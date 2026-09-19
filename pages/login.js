@@ -1,13 +1,10 @@
 import { useRouter } from 'next/router';
 import { useState } from 'react';
 
-const VALID_EMAIL = 'agosoft@agosoft.com.ng';
-const VALID_PASSWORD = 'agoye321@agosoft.com.ng';
-
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState(VALID_EMAIL);
-  const [password, setPassword] = useState(VALID_PASSWORD);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -17,13 +14,22 @@ export default function LoginPage() {
     setIsSubmitting(true);
 
     try {
-      if (email.trim() === VALID_EMAIL && password === VALID_PASSWORD) {
-        localStorage.setItem('email_session', JSON.stringify({ email: VALID_EMAIL }));
-        router.push('/dashboard');
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        setError(data.error || 'Invalid email or password.');
         return;
       }
 
-      setError('Invalid email or password.');
+      localStorage.setItem('email_session', JSON.stringify({ email: data.user.email }));
+      router.push('/dashboard');
+    } catch (requestError) {
+      setError('Unable to sign in right now.');
     } finally {
       setIsSubmitting(false);
     }

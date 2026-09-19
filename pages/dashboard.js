@@ -11,18 +11,24 @@ export default function Dashboard() {
     dailyTrend: [],
     topContacts: [],
   });
+  const [threads, setThreads] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const load = async () => {
       setLoading(true);
       try {
-        const [inboundRes, outboundRes] = await Promise.all([
+        const [inboundRes, outboundRes, threadsRes] = await Promise.all([
           fetch('/api/emails?direction=inbound&limit=200'),
           fetch('/api/emails?direction=outbound&limit=200'),
+          fetch('/api/threads'),
         ]);
 
-        const [inboundData, outboundData] = await Promise.all([inboundRes.json(), outboundRes.json()]);
+        const [inboundData, outboundData, threadsData] = await Promise.all([
+          inboundRes.json(),
+          outboundRes.json(),
+          threadsRes.json(),
+        ]);
         const inbound = inboundData.emails || [];
         const outbound = outboundData.emails || [];
         const unread = inbound.filter((email) => !email.read).length;
@@ -75,6 +81,7 @@ export default function Dashboard() {
           dailyTrend: lastSevenDays,
           topContacts,
         });
+        setThreads(Array.isArray(threadsData.threads) ? threadsData.threads : []);
       } catch (error) {
         console.error('Failed to load dashboard stats:', error);
       } finally {
@@ -84,6 +91,23 @@ export default function Dashboard() {
 
     load();
   }, []);
+
+  const updateThreadStatus = async (threadId, status) => {
+    const response = await fetch('/api/threads', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ threadId, status }),
+    });
+
+    if (!response.ok) return;
+    setThreads((current) => current.map((thread) => thread.threadId === threadId ? { ...thread, status } : thread));
+  };
+
+  const statusColumns = [
+    { value: 'new', label: 'New' },
+    { value: 'in progress', label: 'In progress' },
+    { value: 'closed', label: 'Closed' },
+  ];
 
   const cards = useMemo(
     () => [
@@ -120,6 +144,41 @@ export default function Dashboard() {
                 <div style={styles.cardValue}>{card.value}</div>
               </div>
             ))}
+          </section>
+
+          <section style={styles.card}>
+            <h2 style={styles.sectionTitle}>Thread board</h2>
+            <div style={styles.board}>
+              {statusColumns.map((column) => (
+                <div key={column.value} style={styles.boardColumn}>
+                  <div style={styles.boardHeading}>
+                    <span>{column.label}</span>
+                    <strong>{threads.filter((thread) => thread.status === column.value).length}</strong>
+                  </div>
+                  <div style={styles.boardItems}>
+                    {threads.filter((thread) => thread.status === column.value).map((thread) => (
+                      <div key={thread.threadId} style={styles.threadCard}>
+                        <div style={styles.threadCardSubject}>{thread.subject}</div>
+                        <div style={styles.threadCardContact}>{thread.contact || 'Unknown contact'}</div>
+                        <div style={styles.threadCardMeta}>
+                          {thread.unread ? 'Unread' : 'Read'} · {thread.messageCount} message{thread.messageCount === 1 ? '' : 's'}
+                        </div>
+                        <div style={styles.statusActions}>
+                          {statusColumns.filter((option) => option.value !== thread.status).map((option) => (
+                            <button key={option.value} type="button" style={styles.statusButton} onClick={() => updateThreadStatus(thread.threadId, option.value)}>
+                              Move to {option.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                    {threads.filter((thread) => thread.status === column.value).length === 0 && (
+                      <p style={styles.empty}>No threads.</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
           </section>
 
           <section style={styles.twoColumn}>
@@ -196,6 +255,16 @@ const styles = {
   title: { margin: '4px 0 0', fontSize: 32, color: '#f1f5f9' },
   grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 20 },
   twoColumn: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, marginBottom: 20 },
+  board: { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12, overflowX: 'auto' },
+  boardColumn: { minWidth: 220, background: '#0b1220', borderRadius: 12, padding: 12 },
+  boardHeading: { display: 'flex', justifyContent: 'space-between', color: '#dbeafe', fontSize: 13, fontWeight: 700, marginBottom: 10 },
+  boardItems: { display: 'flex', flexDirection: 'column', gap: 10, minHeight: 80 },
+  threadCard: { background: '#132337', border: '1px solid #29415b', borderRadius: 10, padding: 10 },
+  threadCardSubject: { color: '#f1f5f9', fontWeight: 700, fontSize: 13, overflowWrap: 'anywhere' },
+  threadCardContact: { color: '#b7c7d8', fontSize: 11, marginTop: 5, overflowWrap: 'anywhere' },
+  threadCardMeta: { color: '#9fb2c6', fontSize: 10, marginTop: 6 },
+  statusActions: { display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 9 },
+  statusButton: { border: '1px solid #36536e', background: '#17283b', color: '#d7e5f2', borderRadius: 6, padding: '5px 6px', cursor: 'pointer', fontSize: 10 },
   card: {
     background: '#102033',
     borderRadius: 16,

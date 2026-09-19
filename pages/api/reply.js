@@ -1,5 +1,6 @@
 import { Resend } from 'resend';
 import { supabaseAdmin } from '../../lib/supabaseAdmin';
+import { getSessionFromRequest } from '../../lib/auth';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -10,9 +11,31 @@ export default async function handler(req, res) {
   }
 
   const { threadId, to, from, subject, message, inReplyToMessageId } = req.body || {};
+  const session = getSessionFromRequest(req);
 
   if (!threadId || !to || !subject || !message) {
     return res.status(400).json({ error: 'threadId, to, subject, and message are required' });
+  }
+
+  if (!session) {
+    return res.status(401).json({ error: 'Authentication required.' });
+  }
+
+  const claimedBy = session.email;
+  if (!claimedBy) {
+    return res.status(403).json({ error: 'Claim this thread before replying.' });
+  }
+
+  const { data: threadOwner, error: ownerError } = await supabaseAdmin
+    .from('emails')
+    .select('claimed_by')
+    .eq('thread_id', threadId)
+    .limit(1)
+    .maybeSingle();
+
+  if (ownerError) return res.status(500).json({ error: 'Unable to verify thread ownership.' });
+  if (threadOwner?.claimed_by !== claimedBy) {
+    return res.status(409).json({ error: 'This thread is claimed by another staff member.' });
   }
 
   // Resolve which address to reply FROM. If the caller supplied one (e.g. the
@@ -64,7 +87,7 @@ export default async function handler(req, res) {
       return res.status(502).json({ error: error.message || 'Failed to send reply' });
     }
 
-    await supabaseAdmin.from('emails').insert({
+    const { error: storeError } = await supabaseAdmin.from('emails').insert({
       thread_id: threadId,
       direction: 'outbound',
       message_id: data?.id || null,
@@ -76,6 +99,23 @@ export default async function handler(req, res) {
       html_body: `<p>${escapeHtml(normalizedMessage).replace(/\n/g, '<br/>')}</p>`,
       folder: 'sent',
     });
+
+    if (storeError) {
+      console.error('Reply sent but could not be stored:', storeError);
+      return res.status(502).json({ error: 'Reply sent, but could not be stored.' });
+    }
+
+    const { error: activityError } = await supabaseAdmin.from('thread_activity').insert({
+      thread_id: threadId,
+      actor_email: session.email,
+      activity_type: 'reply_sent',
+      message_id: data?.id || null,
+      details: { to, subject: normalizedSubject },
+    });
+
+    if (activityError) {
+      console.error('Reply sent but activity could not be recorded:', activityError);
+    }
 
     return res.status(200).json({ success: true, id: data?.id });
   } catch (err) {

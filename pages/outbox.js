@@ -188,7 +188,7 @@ export default function Outbox() {
                             <a href={`/api/emails/${msg.id}/attachment?index=${index}`} target="_blank" rel="noreferrer" style={styles.attachmentLink}>
                               {attachment.filename || attachment.name || 'Attachment'}
                             </a>
-                            {attachment.content && <a href={`/api/emails/${msg.id}/attachment?index=${index}&download=1`} style={styles.downloadLink}>Download</a>}
+                            {(attachment.path || attachment.content) && <a href={`/api/emails/${msg.id}/attachment?index=${index}&download=1`} style={styles.downloadLink}>Download</a>}
                           </span>
                         ))}
                       </div>
