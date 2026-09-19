@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
 
@@ -38,6 +39,13 @@ export default function App({ Component, pageProps }) {
     localStorage.setItem('email_theme', isDarkMode ? 'dark' : 'light');
   }, [isDarkMode]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.register('/sw.js').catch((error) => {
+      console.error('Unable to register app service worker:', error);
+    });
+  }, []);
+
   const navItems = [
     { href: '/dashboard', label: 'Dashboard' },
     { href: '/', label: 'Send email' },
@@ -70,6 +78,16 @@ export default function App({ Component, pageProps }) {
 
   return (
     <>
+      <Head>
+        <title>Agosoft Email Portal</title>
+        <meta name="description" content="Agosoft email inbox, outbox, and analytics portal." />
+        <meta name="theme-color" content="#0f172a" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-title" content="Email Portal" />
+        <link rel="manifest" href="/manifest.json" />
+        <link rel="icon" href="/icon.svg" />
+      </Head>
       {showNav ? (
         <nav
           style={{
