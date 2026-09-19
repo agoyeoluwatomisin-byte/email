@@ -337,7 +337,7 @@ export default function Inbox() {
   ];
 
   return (
-    <main className="mail-layout" style={styles.main}>
+    <main className="mail-layout" data-sidebar-open={isSidebarOpen ? 'true' : 'false'} style={styles.main}>
       <aside className={isSidebarOpen ? 'mail-sidebar-open' : 'mail-sidebar-closed'} style={styles.sidebar}>
         <div style={styles.sidebarHeader}>
           <h2 style={styles.h2}>Inbox</h2>

@@ -120,11 +120,11 @@ body[data-theme='light'] textarea {
     padding: 16px 10px !important;
   }
 
-  .mail-layout > aside.mail-sidebar-closed {
+  .mail-layout[data-sidebar-open='false'] > aside {
     display: none !important;
   }
 
-  .mail-layout > aside.mail-sidebar-open {
+  .mail-layout[data-sidebar-open='true'] > aside {
     display: flex !important;
   }
 
