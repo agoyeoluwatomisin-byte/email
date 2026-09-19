@@ -49,7 +49,6 @@ export default function Inbox() {
   const [replyError, setReplyError] = useState('');
   const [search, setSearch] = useState('');
   const [expandedMessageIds, setExpandedMessageIds] = useState([]);
-  const [quotedVisibleIds, setQuotedVisibleIds] = useState([]);
   const [hiddenThreadIds, setHiddenThreadIds] = useState([]);
   const [unreadThreadIds, setUnreadThreadIds] = useState([]);
 
@@ -194,12 +193,6 @@ export default function Inbox() {
     );
   };
 
-  const toggleQuotedVisible = (messageId) => {
-    setQuotedVisibleIds((current) =>
-      current.includes(messageId) ? current.filter((id) => id !== messageId) : [...current, messageId]
-    );
-  };
-
   const unreadCount = unreadThreadIds.length;
 
   return (
@@ -229,7 +222,7 @@ export default function Inbox() {
         {visibleThreads.map((thread) => {
           const latest = thread[thread.length - 1];
           const isUnread = latest && latest.direction === 'inbound' && unreadThreadIds.includes(thread[0].thread_id);
-          const preview = (latest?.text_body || latest?.subject || '').replace(/\s+/g, ' ').trim();
+          const preview = (splitEmailBody(latest?.text_body).main || latest?.subject || '').replace(/\s+/g, ' ').trim();
 
           return (
             <button
@@ -245,7 +238,6 @@ export default function Inbox() {
                 <div style={styles.threadFrom}>{latest.from_address}</div>
                 {isUnread && <span style={styles.unreadBadge}>New</span>}
               </div>
-              <div style={styles.threadSubject}>{latest.subject || '(no subject)'}</div>
               <div style={styles.threadPreview}>{preview.slice(0, 90)}{preview.length > 90 ? '…' : ''}</div>
               <div style={styles.threadDateRow}>
                 <span style={styles.threadDate}>{new Date(latest.received_at).toLocaleString()}</span>
@@ -279,8 +271,7 @@ export default function Inbox() {
             <div style={styles.messages}>
               {activeThread.map((msg) => {
                 const isExpanded = expandedMessageIds.includes(msg.id);
-                const isQuoteVisible = quotedVisibleIds.includes(msg.id);
-                const { main, quoted } = splitEmailBody(msg.text_body);
+                const { main } = splitEmailBody(msg.text_body);
                 const content = main || '(no message content)';
                 const body = content.length > 300 && !isExpanded ? `${content.slice(0, 300)}…` : content;
                 const attachments = Array.isArray(msg.attachments) ? msg.attachments : [];
@@ -300,14 +291,6 @@ export default function Inbox() {
                       {new Date(msg.received_at).toLocaleString()}
                     </div>
                     <div style={styles.messageBody}>{body}</div>
-                    {quoted && (
-                      <div style={styles.quoteBlock}>
-                        <button type="button" style={styles.quoteToggle} onClick={() => toggleQuotedVisible(msg.id)}>
-                          {isQuoteVisible ? '▾ Hide quoted text' : '▸ Show quoted text'}
-                        </button>
-                        {isQuoteVisible && <div style={styles.quotedText}>{quoted}</div>}
-                      </div>
-                    )}
                     {attachments.length > 0 && (
                       <div style={styles.attachmentList}>
                         {attachments.map((attachment, index) => (
@@ -431,7 +414,6 @@ const styles = {
     borderRadius: 999,
     fontWeight: 700,
   },
-  threadSubject: { fontSize: 13, color: '#e2e8f0', marginTop: 2, fontWeight: 600 },
   threadPreview: { fontSize: 12, color: '#94a3b8', marginTop: 4, lineHeight: 1.4 },
   threadDateRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, gap: 8 },
   threadDate: { fontSize: 11, color: '#64748b' },
@@ -458,27 +440,6 @@ const styles = {
   messageBubble: { maxWidth: '70%', padding: 12, borderRadius: 10, fontSize: 14 },
   messageMeta: { fontSize: 11, opacity: 0.7, marginBottom: 4 },
   messageBody: { whiteSpace: 'pre-wrap', wordBreak: 'break-word' },
-  quoteBlock: { marginTop: 10 },
-  quoteToggle: {
-    background: 'transparent',
-    border: 'none',
-    color: '#8fb3d9',
-    padding: 0,
-    fontSize: 11,
-    cursor: 'pointer',
-    opacity: 0.85,
-  },
-  quotedText: {
-    marginTop: 8,
-    paddingLeft: 10,
-    borderLeft: '2px solid #36536e',
-    color: '#9db3c9',
-    fontSize: 12.5,
-    whiteSpace: 'pre-wrap',
-    wordBreak: 'break-word',
-    maxHeight: 220,
-    overflowY: 'auto',
-  },
   attachmentList: { display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 },
   attachmentItem: {
     background: '#e2e8f0',
