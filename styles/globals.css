@@ -5,6 +5,17 @@ body {
   background: #07111f;
   color: #e5eef8;
   font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+body[data-theme='light'] {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+body[data-theme='dark'] {
+  background: #07111f;
+  color: #e5eef8;
 }
 
 * {
@@ -14,7 +25,24 @@ body {
 button,
 input,
 textarea {
+  font: inherit;
+}
+
+button,
+input,
+textarea {
   color-scheme: dark;
+}
+
+body[data-theme='light'] button,
+body[data-theme='light'] input,
+body[data-theme='light'] textarea {
+  color-scheme: light;
+}
+
+@keyframes pulse {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
 @media (max-width: 760px) {
@@ -38,5 +66,13 @@ textarea {
 
   .mail-layout .messageBubble {
     max-width: 92% !important;
+  }
+
+  .mail-layout .replyForm {
+    flex-direction: column;
+  }
+
+  .mail-layout .threadTitle {
+    font-size: 20px;
   }
 }

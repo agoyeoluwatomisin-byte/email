@@ -2,11 +2,35 @@ import { useEffect, useMemo, useState } from 'react';
 
 const quickContacts = ['hello@yourdomain.com', 'support@yourdomain.com', 'sales@yourdomain.com'];
 
+function formatBytes(bytes) {
+  if (!bytes) return '0 B';
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), sizes.length - 1);
+  const value = bytes / 1024 ** index;
+  return `${value.toFixed(value >= 10 || index === 0 ? 0 : 1)} ${sizes[index]}`;
+}
+
+function getSpamRiskScore({ to, subject, message }) {
+  let score = 0;
+  const text = `${to || ''} ${subject || ''} ${message || ''}`.toLowerCase();
+
+  if (!to || !to.includes('@')) score += 25;
+  if (/(free|winner|click now|urgent|limited time|claim)/i.test(text)) score += 30;
+  if (/\b[a-z]{1,2}\b/.test(text) && text.length > 300) score += 10;
+  if ((text.match(/!+/g) || []).length > 1) score += 10;
+  if ((text.match(/\b[A-Z]{5,}\b/g) || []).length > 0) score += 8;
+  if ((text.match(/\bhttps?:\/\//gi) || []).length > 0) score += 15;
+  if (subject && subject.length > 80) score += 10;
+
+  return Math.min(score, 100);
+}
+
 export default function Home() {
   const [form, setForm] = useState({ to: '', cc: '', bcc: '', subject: '', message: '', replyTo: '' });
   const [status, setStatus] = useState({ state: 'idle', message: '' });
   const [attachments, setAttachments] = useState([]);
   const [draftSaved, setDraftSaved] = useState(false);
+  const [confirmRiskySend, setConfirmRiskySend] = useState(false);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -38,6 +62,7 @@ export default function Home() {
     const mapped = files.map((file) => ({
       name: file.name,
       contentType: file.type || 'application/octet-stream',
+      size: file.size,
       content: '',
     }));
 
@@ -51,6 +76,7 @@ export default function Home() {
               resolve({
                 name: file.name,
                 contentType: file.type || 'application/octet-stream',
+                size: file.size,
                 content: result.includes('base64,') ? result.split('base64,')[1] : result,
               });
             };
@@ -62,6 +88,16 @@ export default function Home() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const spamRisk = getSpamRiskScore({ to: form.to, subject: form.subject, message: form.message });
+
+    if (spamRisk >= 60 && !confirmRiskySend) {
+      setStatus({
+        state: 'warning',
+        message: `Spam risk score: ${spamRisk}/100. Review the message before sending.`,
+      });
+      return;
+    }
+
     setStatus({ state: 'loading', message: '' });
 
     try {
@@ -84,6 +120,7 @@ export default function Home() {
 
       localStorage.removeItem('email-compose-draft');
       setStatus({ state: 'success', message: 'Email sent!' });
+      setConfirmRiskySend(false);
       setForm({ to: '', cc: '', bcc: '', subject: '', message: '', replyTo: '' });
       setAttachments([]);
     } catch (err) {
@@ -123,6 +160,22 @@ export default function Home() {
             ))}
           </div>
         </div>
+
+        {status.state === 'warning' && (
+          <div style={styles.warningBox}>
+            <strong>Review required:</strong> {status.message}
+            <button
+              type="button"
+              style={styles.warningAction}
+              onClick={() => {
+                setConfirmRiskySend(true);
+                setStatus({ state: 'idle', message: '' });
+              }}
+            >
+              Send anyway
+            </button>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} style={styles.form}>
           <label style={styles.label}>
@@ -191,7 +244,9 @@ export default function Home() {
             {attachments.length > 0 && (
               <div style={styles.attachmentList}>
                 {attachments.map((file) => (
-                  <span key={file.name} style={styles.attachmentItem}>{file.name}</span>
+                  <span key={`${file.name}-${file.size}`} style={styles.attachmentItem}>
+                    {file.name} · {formatBytes(file.size)} · {file.contentType.split('/')[1] || 'file'}
+                  </span>
                 ))}
               </div>
             )}
@@ -265,6 +320,29 @@ const styles = {
     fontFamily: 'inherit',
   },
   fileInput: { padding: '10px 0', fontSize: 13, color: '#c5d4e2' },
+  warningBox: {
+    background: 'rgba(245, 158, 11, 0.12)',
+    border: '1px solid rgba(245, 158, 11, 0.5)',
+    borderRadius: 10,
+    color: '#fcd34d',
+    padding: '10px 12px',
+    marginBottom: 16,
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 10,
+    flexWrap: 'wrap',
+    fontSize: 13,
+  },
+  warningAction: {
+    background: '#f59e0b',
+    border: 'none',
+    borderRadius: 6,
+    color: '#1f2937',
+    padding: '6px 10px',
+    cursor: 'pointer',
+    fontWeight: 700,
+  },
   attachmentList: { display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4 },
   attachmentItem: {
     background: '#173b5f',

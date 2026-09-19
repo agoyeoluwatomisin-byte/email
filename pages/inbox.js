@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 
+function formatMailboxLabel(address) {
+  if (!address) return 'unknown';
+  const clean = address.trim();
+  if (!clean) return 'unknown';
+  const localPart = clean.split('@')[0];
+  return (localPart || clean).toLowerCase();
+}
+
 // Splits a plain-text email body into what the sender actually wrote and
 // the quoted history underneath it (Gmail/Apple Mail "On ... wrote:" chains,
 // Outlook "-----Original Message-----" blocks, and lines starting with ">").
@@ -48,6 +56,7 @@ export default function Inbox() {
   const [sending, setSending] = useState(false);
   const [replyError, setReplyError] = useState('');
   const [search, setSearch] = useState('');
+  const [selectedMailbox, setSelectedMailbox] = useState('all');
   const [expandedMessageIds, setExpandedMessageIds] = useState([]);
   const [hiddenThreadIds, setHiddenThreadIds] = useState([]);
   const [unreadThreadIds, setUnreadThreadIds] = useState([]);
@@ -69,6 +78,17 @@ export default function Inbox() {
     load();
   }, []);
 
+  const mailboxGroups = useMemo(() => {
+    const addresses = [...new Set(emails.map((email) => (email.to_address || '').trim()).filter(Boolean))];
+    const map = new Map();
+
+    addresses.forEach((address) => {
+      map.set(address, formatMailboxLabel(address));
+    });
+
+    return [...map.entries()].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
+  }, [emails]);
+
   const visibleThreads = useMemo(() => {
     const map = new Map();
     for (const email of emails) {
@@ -81,17 +101,36 @@ export default function Inbox() {
       .map((msgs) => msgs.sort((a, b) => new Date(a.received_at) - new Date(b.received_at)))
       .sort((a, b) => new Date(b[b.length - 1].received_at) - new Date(a[a.length - 1].received_at));
 
-    const normalized = search.trim().toLowerCase();
-    if (!normalized) return grouped;
+    const filteredByMailbox = selectedMailbox === 'all'
+      ? grouped
+      : grouped.filter((thread) => {
+          const recipients = [...new Set(thread.flatMap((msg) => (msg.to_address || '').trim()).filter(Boolean))];
+          return recipients.includes(selectedMailbox);
+        });
 
-    return grouped.filter((thread) => {
+    const normalized = search.trim().toLowerCase();
+    if (!normalized) return filteredByMailbox;
+
+    return filteredByMailbox.filter((thread) => {
       const text = thread
-        .map((msg) => `${msg.from_address || ''} ${msg.subject || ''} ${msg.text_body || ''}`)
+        .map((msg) => `${msg.from_address || ''} ${msg.subject || ''} ${msg.text_body || ''} ${msg.to_address || ''}`)
         .join(' ')
         .toLowerCase();
       return text.includes(normalized);
     });
-  }, [emails, hiddenThreadIds, search]);
+  }, [emails, hiddenThreadIds, search, selectedMailbox]);
+
+  useEffect(() => {
+    if (selectedMailbox !== 'all' && !mailboxGroups.some((item) => item.value === selectedMailbox)) {
+      setSelectedMailbox('all');
+    }
+  }, [mailboxGroups, selectedMailbox]);
+
+  useEffect(() => {
+    if (selectedThread && !visibleThreads.some((thread) => thread[0].thread_id === selectedThread)) {
+      setSelectedThread(null);
+    }
+  }, [selectedThread, visibleThreads]);
 
   const activeThread = visibleThreads.find((thread) => thread[0].thread_id === selectedThread);
   const lastInbound = activeThread ? [...activeThread].reverse().find((msg) => msg.direction === 'inbound') : null;
@@ -206,6 +245,32 @@ export default function Inbox() {
           </div>
         </div>
 
+        <div style={styles.filterWrap}>
+          <button
+            type="button"
+            onClick={() => setSelectedMailbox('all')}
+            style={{
+              ...styles.filterButton,
+              ...(selectedMailbox === 'all' ? styles.filterButtonActive : {}),
+            }}
+          >
+            All inbox
+          </button>
+          {mailboxGroups.map((mailbox) => (
+            <button
+              key={mailbox.value}
+              type="button"
+              onClick={() => setSelectedMailbox(mailbox.value)}
+              style={{
+                ...styles.filterButton,
+                ...(selectedMailbox === mailbox.value ? styles.filterButtonActive : {}),
+              }}
+            >
+              {mailbox.label}
+            </button>
+          ))}
+        </div>
+
         <div style={styles.searchWrap}>
           <input
             style={styles.searchInput}
@@ -216,8 +281,21 @@ export default function Inbox() {
           />
         </div>
 
-        {loading && <p style={styles.dim}>Loading…</p>}
-        {!loading && visibleThreads.length === 0 && <p style={styles.dim}>No emails match your search.</p>}
+        {loading ? (
+          <div style={styles.skeletonList}>
+            {[1, 2, 3].map((item) => (
+              <div key={item} style={styles.skeletonRow} />
+            ))}
+          </div>
+        ) : visibleThreads.length === 0 ? (
+          <div style={styles.emptyState}>
+            <div style={styles.emptyTitle}>No messages in this inbox</div>
+            <p style={styles.emptyText}>Try another mailbox group or clear your search.</p>
+            <button type="button" style={styles.emptyAction} onClick={() => { setSearch(''); setSelectedMailbox('all'); }}>
+              Show all inboxes
+            </button>
+          </div>
+        ) : null}
 
         {visibleThreads.map((thread) => {
           const latest = thread[thread.length - 1];
@@ -374,6 +452,28 @@ const styles = {
     fontWeight: 700,
   },
   h2: { margin: 0, fontSize: 18 },
+  filterWrap: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 8,
+    padding: '0 16px 12px',
+  },
+  filterButton: {
+    background: '#111827',
+    border: '1px solid #334155',
+    color: '#cbd5e1',
+    borderRadius: 999,
+    padding: '6px 10px',
+    fontSize: 11,
+    fontWeight: 600,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  },
+  filterButtonActive: {
+    background: '#2563eb',
+    borderColor: '#2563eb',
+    color: '#eff6ff',
+  },
   searchWrap: { padding: '0 16px 12px' },
   searchInput: {
     width: '100%',
@@ -384,6 +484,42 @@ const styles = {
     background: '#111827',
     color: '#e2e8f0',
     fontSize: 14,
+  },
+  skeletonList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 12,
+    padding: '0 16px 16px',
+  },
+  skeletonRow: {
+    height: 72,
+    borderRadius: 12,
+    background: 'linear-gradient(90deg, rgba(51,65,85,0.7) 25%, rgba(30,41,59,0.9) 50%, rgba(51,65,85,0.7) 75%)',
+    backgroundSize: '200% 100%',
+    animation: 'pulse 1.2s ease-in-out infinite',
+  },
+  emptyState: {
+    padding: '24px 16px',
+    color: '#cbd5e1',
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: 700,
+    marginBottom: 6,
+  },
+  emptyText: {
+    margin: '0 0 12px',
+    color: '#94a3b8',
+    fontSize: 13,
+  },
+  emptyAction: {
+    background: '#2563eb',
+    border: 'none',
+    borderRadius: 8,
+    color: '#eff6ff',
+    padding: '8px 12px',
+    cursor: 'pointer',
+    fontWeight: 700,
   },
   refreshBtn: {
     background: 'none',
