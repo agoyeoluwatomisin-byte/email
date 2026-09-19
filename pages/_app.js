@@ -1,8 +1,31 @@
 import Link from 'next/link';
 import { useRouter } from 'next/router';
+import { useEffect, useState } from 'react';
 
 export default function App({ Component, pageProps }) {
   const router = useRouter();
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isReady, setIsReady] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const session = localStorage.getItem('email_session');
+    const isLoggedIn = Boolean(session);
+    const isLoginPage = router.pathname === '/login';
+
+    setIsAuthenticated(isLoggedIn);
+    setIsReady(true);
+
+    if (!isLoggedIn && !isLoginPage) {
+      router.replace('/login');
+      return;
+    }
+
+    if (isLoggedIn && isLoginPage) {
+      router.replace('/dashboard');
+    }
+  }, [router.pathname]);
 
   const navItems = [
     { href: '/dashboard', label: 'Dashboard' },
@@ -11,29 +34,33 @@ export default function App({ Component, pageProps }) {
     { href: '/outbox', label: 'Outbox' },
   ];
 
+  const showNav = isReady && isAuthenticated && router.pathname !== '/login';
+
   return (
     <>
-      <nav style={styles.navbar} aria-label="Main navigation">
-        <div style={styles.brand}>Email</div>
-        <div style={styles.navLinks}>
-          {navItems.map((item) => {
-            const isActive = router.pathname === item.href;
+      {showNav ? (
+        <nav style={styles.navbar} aria-label="Main navigation">
+          <div style={styles.brand}>Email</div>
+          <div style={styles.navLinks}>
+            {navItems.map((item) => {
+              const isActive = router.pathname === item.href;
 
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                style={{
-                  ...styles.navLink,
-                  ...(isActive ? styles.navLinkActive : {}),
-                }}
-              >
-                {item.label}
-              </Link>
-            );
-          })}
-        </div>
-      </nav>
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  style={{
+                    ...styles.navLink,
+                    ...(isActive ? styles.navLinkActive : {}),
+                  }}
+                >
+                  {item.label}
+                </Link>
+              );
+            })}
+          </div>
+        </nav>
+      ) : null}
 
       <div style={styles.pageShell}>
         <Component {...pageProps} />
