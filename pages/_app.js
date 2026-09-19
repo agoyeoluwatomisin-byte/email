@@ -77,12 +77,13 @@ export default function App({ Component, pageProps }) {
             background: theme.navBackground,
             borderBottom: `1px solid ${theme.navBorder}`,
           }}
+          className="app-nav"
           aria-label="Main navigation"
         >
-          <div style={{ ...styles.brand, color: theme.navText }}>Email</div>
+          <div className="app-nav-brand" style={{ ...styles.brand, color: theme.navText }}>Email</div>
 
-          <div style={styles.navActions}>
-            <div style={styles.navLinks}>
+          <div className="app-nav-actions" style={styles.navActions}>
+            <div className="app-nav-links" style={styles.navLinks}>
               {navItems.map((item) => {
                 const isActive = router.pathname === item.href;
 
@@ -95,6 +96,7 @@ export default function App({ Component, pageProps }) {
                       color: isActive ? theme.navText : theme.navLink,
                       background: isActive ? theme.navLinkActive : 'transparent',
                     }}
+                    className="app-nav-link"
                   >
                     {item.label}
                   </Link>
@@ -110,6 +112,7 @@ export default function App({ Component, pageProps }) {
                 background: theme.toggleBackground,
                 color: theme.toggleText,
               }}
+              className="app-theme-toggle"
             >
               {isDarkMode ? 'Light mode' : 'Dark mode'}
             </button>
@@ -117,7 +120,7 @@ export default function App({ Component, pageProps }) {
         </nav>
       ) : null}
 
-      <div style={{ ...styles.pageShell, background: theme.pageBackground }}>
+      <div className="page-shell" style={{ ...styles.pageShell, background: theme.pageBackground }}>
         <Component {...pageProps} />
       </div>
     </>

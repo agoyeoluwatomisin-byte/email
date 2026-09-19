@@ -8,6 +8,18 @@ function formatMailboxLabel(address) {
   return (localPart || clean).toLowerCase();
 }
 
+function parseMailboxAddresses(value) {
+  const values = Array.isArray(value) ? value : String(value || '').split(/[;,]/);
+
+  return values
+    .map((item) => {
+      const match = String(item).match(/<([^>]+)>/);
+      return (match ? match[1] : String(item)).trim().toLowerCase();
+    })
+    .map((address) => address.replace(/^mailto:/, '').replace(/[\s"']/g, ''))
+    .filter((address) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(address));
+}
+
 function getFileIcon(attachment) {
   const type = String(attachment.mimeType || attachment.contentType || '').toLowerCase();
   if (type.startsWith('image/')) return 'IMG';
@@ -80,6 +92,7 @@ export default function Inbox() {
     const data = await res.json();
     const loadedEmails = (data.emails || []).map((email) => ({
       ...email,
+      mailboxAddresses: parseMailboxAddresses(email.to_address),
       attachments: Array.isArray(email.attachments) ? email.attachments : [],
     }));
     setEmails(loadedEmails);
@@ -92,14 +105,23 @@ export default function Inbox() {
   }, []);
 
   const mailboxGroups = useMemo(() => {
-    const addresses = [...new Set(emails.map((email) => (email.to_address || '').trim()).filter(Boolean))];
-    const map = new Map();
+    const addresses = [...new Set(emails.flatMap((email) => email.mailboxAddresses || parseMailboxAddresses(email.to_address)))];
+    const localPartCounts = addresses.reduce((counts, address) => {
+      const localPart = formatMailboxLabel(address);
+      counts[localPart] = (counts[localPart] || 0) + 1;
+      return counts;
+    }, {});
 
-    addresses.forEach((address) => {
-      map.set(address, formatMailboxLabel(address));
-    });
-
-    return [...map.entries()].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
+    return addresses
+      .map((address) => {
+        const localPart = formatMailboxLabel(address);
+        const domain = address.split('@')[1] || '';
+        return {
+          value: address,
+          label: localPartCounts[localPart] > 1 ? `${localPart}@${domain}` : localPart,
+        };
+      })
+      .sort((a, b) => a.label.localeCompare(b.label));
   }, [emails]);
 
   const visibleThreads = useMemo(() => {
@@ -123,7 +145,7 @@ export default function Inbox() {
     const filteredByMailbox = selectedMailbox === 'all'
       ? filteredByFolder
       : filteredByFolder.filter((thread) => {
-          const recipients = [...new Set(thread.flatMap((msg) => (msg.to_address || '').trim()).filter(Boolean))];
+          const recipients = [...new Set(thread.flatMap((msg) => msg.mailboxAddresses || parseMailboxAddresses(msg.to_address)))];
           return recipients.includes(selectedMailbox);
         });
 
