@@ -120,6 +120,27 @@ body[data-theme='light'] textarea {
     padding: 16px 10px !important;
   }
 
+  .mail-layout > aside.mail-sidebar-closed {
+    display: none !important;
+  }
+
+  .mail-layout > aside.mail-sidebar-open {
+    display: flex !important;
+  }
+
+  .mail-layout > section.mail-conversation {
+    min-height: calc(100vh - 54px);
+  }
+
+  .mobile-sidebar-toggle {
+    display: inline-flex !important;
+  }
+
+  .mobile-inbox-toggle {
+    align-self: flex-start;
+    margin: -4px 0 14px;
+  }
+
   .mail-layout .messageBubble {
     max-width: 96% !important;
   }
@@ -174,4 +195,8 @@ body[data-theme='light'] textarea {
   .page-shell h1 {
     font-size: 26px !important;
   }
+}
+
+.mobile-sidebar-toggle {
+  display: none;
 }

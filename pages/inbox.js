@@ -80,6 +80,7 @@ export default function Inbox() {
   const [search, setSearch] = useState('');
   const [selectedMailbox, setSelectedMailbox] = useState('all');
   const [selectedFolder, setSelectedFolder] = useState('inbox');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [selectedThreadIds, setSelectedThreadIds] = useState([]);
   const [actionError, setActionError] = useState('');
   const [expandedMessageIds, setExpandedMessageIds] = useState([]);
@@ -182,6 +183,7 @@ export default function Inbox() {
 
   const handleSelectThread = async (threadId) => {
     setSelectedThread(threadId);
+    setIsSidebarOpen(false);
     markThreadRead(threadId);
     await fetch(`/api/emails/${threadId}`, {
       method: 'PATCH',
@@ -336,12 +338,21 @@ export default function Inbox() {
 
   return (
     <main className="mail-layout" style={styles.main}>
-      <aside style={styles.sidebar}>
+      <aside className={isSidebarOpen ? 'mail-sidebar-open' : 'mail-sidebar-closed'} style={styles.sidebar}>
         <div style={styles.sidebarHeader}>
           <h2 style={styles.h2}>Inbox</h2>
           <div style={styles.headerActions}>
             {unreadCount > 0 && <span style={styles.unreadPill}>{unreadCount} unread</span>}
             <button style={styles.refreshBtn} onClick={load}>⟳</button>
+            <button
+              type="button"
+              className="mobile-sidebar-toggle"
+              style={styles.sidebarToggle}
+              onClick={() => setIsSidebarOpen(false)}
+              aria-label="Hide inbox list"
+            >
+              ×
+            </button>
           </div>
         </div>
 
@@ -475,7 +486,16 @@ export default function Inbox() {
         })}
       </aside>
 
-      <section style={styles.conversation}>
+      <section className="mail-conversation" style={styles.conversation}>
+        <button
+          type="button"
+          className="mobile-sidebar-toggle mobile-inbox-toggle"
+          style={styles.inboxToggle}
+          onClick={() => setIsSidebarOpen(true)}
+          aria-label="Show inbox list"
+        >
+          ‹ Inbox
+        </button>
         {!activeThread && <p style={styles.dim}>Select a conversation.</p>}
 
         {activeThread && (

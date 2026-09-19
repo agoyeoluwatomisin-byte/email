@@ -7,6 +7,7 @@ export default function Outbox() {
   const [search, setSearch] = useState('');
   const [expandedMessageIds, setExpandedMessageIds] = useState([]);
   const [hiddenThreadIds, setHiddenThreadIds] = useState([]);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   const load = async () => {
     setLoading(true);
@@ -49,6 +50,11 @@ export default function Outbox() {
 
   const activeThread = visibleThreads.find((thread) => thread[0].thread_id === selectedThread);
 
+  const handleSelectThread = (threadId) => {
+    setSelectedThread(threadId);
+    setIsSidebarOpen(false);
+  };
+
   const handleArchiveThread = (threadId) => {
     setHiddenThreadIds((current) => [...current, threadId]);
     if (selectedThread === threadId) setSelectedThread(null);
@@ -73,10 +79,21 @@ export default function Outbox() {
 
   return (
     <main className="mail-layout" style={styles.main}>
-      <aside style={styles.sidebar}>
+      <aside className={isSidebarOpen ? 'mail-sidebar-open' : 'mail-sidebar-closed'} style={styles.sidebar}>
         <div style={styles.sidebarHeader}>
           <h2 style={styles.h2}>Outbox</h2>
-          <button style={styles.refreshBtn} onClick={load}>⟳</button>
+          <div style={styles.headerActions}>
+            <button style={styles.refreshBtn} onClick={load}>⟳</button>
+            <button
+              type="button"
+              className="mobile-sidebar-toggle"
+              style={styles.sidebarToggle}
+              onClick={() => setIsSidebarOpen(false)}
+              aria-label="Hide outbox list"
+            >
+              ×
+            </button>
+          </div>
         </div>
 
         <div style={styles.searchWrap}>
@@ -98,7 +115,7 @@ export default function Outbox() {
           return (
             <button
               key={thread[0].thread_id}
-              onClick={() => setSelectedThread(thread[0].thread_id)}
+              onClick={() => handleSelectThread(thread[0].thread_id)}
               style={{
                 ...styles.threadItem,
                 background: selectedThread === thread[0].thread_id ? '#1e293b' : 'transparent',
@@ -125,7 +142,16 @@ export default function Outbox() {
         })}
       </aside>
 
-      <section style={styles.conversation}>
+      <section className="mail-conversation" style={styles.conversation}>
+        <button
+          type="button"
+          className="mobile-sidebar-toggle mobile-inbox-toggle"
+          style={styles.outboxToggle}
+          onClick={() => setIsSidebarOpen(true)}
+          aria-label="Show outbox list"
+        >
+          ‹ Outbox
+        </button>
         {!activeThread && <p style={styles.dim}>Select a sent message.</p>}
 
         {activeThread && (
@@ -200,6 +226,7 @@ const styles = {
     alignItems: 'center',
     padding: '16px 16px 8px',
   },
+  headerActions: { display: 'flex', alignItems: 'center', gap: 8 },
   h2: { margin: 0, fontSize: 18 },
   searchWrap: { padding: '0 16px 12px' },
   searchInput: {
@@ -219,6 +246,18 @@ const styles = {
     borderRadius: 6,
     padding: '4px 8px',
     cursor: 'pointer',
+  },
+  sidebarToggle: {
+    display: 'none',
+    background: 'transparent',
+    border: '1px solid #334155',
+    color: '#e2e8f0',
+    borderRadius: 6,
+    minWidth: 32,
+    minHeight: 32,
+    cursor: 'pointer',
+    fontSize: 18,
+    lineHeight: 1,
   },
   dim: { color: '#64748b', padding: '0 16px', fontSize: 14 },
   threadItem: {
@@ -252,6 +291,10 @@ const styles = {
     flexDirection: 'column',
     overflowY: 'auto',
     minWidth: 0,
+  },
+  outboxToggle: {
+    alignSelf: 'flex-start',
+    margin: '-4px 0 14px',
   },
   threadTitle: { marginTop: 0 },
   threadToolbar: { display: 'flex', justifyContent: 'flex-end', marginBottom: 16 },
