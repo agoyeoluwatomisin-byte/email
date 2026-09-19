@@ -135,10 +135,12 @@ export default async function handler(req, res) {
       subject: normalizedSubject,
       text_body: textBody,
       html_body: htmlBody,
+      folder: 'sent',
       attachments: Array.isArray(attachments)
         ? attachments.slice(0, 10).map((attachment) => ({
             name: attachment.name || 'attachment',
             contentType: attachment.contentType || 'application/octet-stream',
+        size: attachment.size || 0,
             content: attachment.content || '',
           }))
         : [],

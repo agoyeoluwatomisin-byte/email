@@ -12,23 +12,30 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'PATCH') {
-    const { read } = req.body || {};
-    if (typeof read !== 'boolean') {
-      return res.status(400).json({ error: 'read must be a boolean' });
+    const { read, starred, folder } = req.body || {};
+    const updates = {};
+
+    if (typeof read === 'boolean') updates.read = read;
+    if (typeof starred === 'boolean') updates.starred = starred;
+    if (typeof folder === 'string' && ['inbox', 'archive', 'spam', 'drafts', 'sent'].includes(folder)) {
+      updates.folder = folder;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'Provide a valid read, starred, or folder update' });
     }
 
     const { error } = await supabaseAdmin
       .from('emails')
-      .update({ read })
-      .eq('thread_id', id)
-      .eq('direction', 'inbound');
+      .update(updates)
+      .eq('thread_id', id);
 
     if (error) {
-      console.error('Failed to update email read state:', error);
-      return res.status(500).json({ error: 'Failed to update read state' });
+      console.error('Failed to update email thread:', error);
+      return res.status(500).json({ error: 'Failed to update email thread' });
     }
 
-    return res.status(200).json({ success: true, threadId: id, read });
+    return res.status(200).json({ success: true, threadId: id, updates });
   }
 
   const { error } = await supabaseAdmin.from('emails').delete().eq('thread_id', id);

@@ -56,6 +56,7 @@ export default async function handler(req, res) {
       subject: normalizedSubject,
       text_body: normalizedMessage,
       html_body: `<p>${escapeHtml(normalizedMessage).replace(/\n/g, '<br/>')}</p>`,
+      folder: 'sent',
     });
 
     return res.status(200).json({ success: true, id: data?.id });

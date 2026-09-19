@@ -5,7 +5,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { direction, threadId, limit = '300' } = req.query || {};
+  const { direction, threadId, folder, starred, limit = '300' } = req.query || {};
 
   let query = supabaseAdmin.from('emails').select('*');
 
@@ -15,6 +15,14 @@ export default async function handler(req, res) {
 
   if (threadId) {
     query = query.eq('thread_id', threadId);
+  }
+
+  if (folder) {
+    query = query.eq('folder', folder);
+  }
+
+  if (starred === 'true') {
+    query = query.eq('starred', true);
   }
 
   const { data, error } = await query

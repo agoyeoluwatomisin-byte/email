@@ -8,6 +8,16 @@ function formatMailboxLabel(address) {
   return (localPart || clean).toLowerCase();
 }
 
+function getFileIcon(attachment) {
+  const type = String(attachment.mimeType || attachment.contentType || '').toLowerCase();
+  if (type.startsWith('image/')) return 'IMG';
+  if (type.includes('pdf')) return 'PDF';
+  if (type.includes('word') || type.includes('document')) return 'DOC';
+  if (type.includes('sheet') || type.includes('excel')) return 'XLS';
+  if (type.includes('zip') || type.includes('compressed')) return 'ZIP';
+  return 'FILE';
+}
+
 // Splits a plain-text email body into what the sender actually wrote and
 // the quoted history underneath it (Gmail/Apple Mail "On ... wrote:" chains,
 // Outlook "-----Original Message-----" blocks, and lines starting with ">").
@@ -57,13 +67,16 @@ export default function Inbox() {
   const [replyError, setReplyError] = useState('');
   const [search, setSearch] = useState('');
   const [selectedMailbox, setSelectedMailbox] = useState('all');
+  const [selectedFolder, setSelectedFolder] = useState('inbox');
+  const [selectedThreadIds, setSelectedThreadIds] = useState([]);
+  const [actionError, setActionError] = useState('');
   const [expandedMessageIds, setExpandedMessageIds] = useState([]);
   const [hiddenThreadIds, setHiddenThreadIds] = useState([]);
   const [unreadThreadIds, setUnreadThreadIds] = useState([]);
 
   const load = async () => {
     setLoading(true);
-    const res = await fetch('/api/emails?direction=inbound');
+    const res = await fetch('/api/emails');
     const data = await res.json();
     const loadedEmails = (data.emails || []).map((email) => ({
       ...email,
@@ -101,9 +114,15 @@ export default function Inbox() {
       .map((msgs) => msgs.sort((a, b) => new Date(a.received_at) - new Date(b.received_at)))
       .sort((a, b) => new Date(b[b.length - 1].received_at) - new Date(a[a.length - 1].received_at));
 
-    const filteredByMailbox = selectedMailbox === 'all'
+    const filteredByFolder = selectedFolder === 'all'
       ? grouped
-      : grouped.filter((thread) => {
+      : selectedFolder === 'starred'
+        ? grouped.filter((thread) => thread.some((msg) => msg.starred))
+        : grouped.filter((thread) => (thread[0].folder || (thread[0].direction === 'outbound' ? 'sent' : 'inbox')) === selectedFolder);
+
+    const filteredByMailbox = selectedMailbox === 'all'
+      ? filteredByFolder
+      : filteredByFolder.filter((thread) => {
           const recipients = [...new Set(thread.flatMap((msg) => (msg.to_address || '').trim()).filter(Boolean))];
           return recipients.includes(selectedMailbox);
         });
@@ -118,7 +137,7 @@ export default function Inbox() {
         .toLowerCase();
       return text.includes(normalized);
     });
-  }, [emails, hiddenThreadIds, search, selectedMailbox]);
+  }, [emails, hiddenThreadIds, search, selectedFolder, selectedMailbox]);
 
   useEffect(() => {
     if (selectedMailbox !== 'all' && !mailboxGroups.some((item) => item.value === selectedMailbox)) {
@@ -150,9 +169,59 @@ export default function Inbox() {
   };
 
   const handleArchiveThread = (threadId) => {
-    setHiddenThreadIds((current) => [...current, threadId]);
-    if (selectedThread === threadId) setSelectedThread(null);
-    setUnreadThreadIds((current) => current.filter((id) => id !== threadId));
+    handleBulkAction('archive', [threadId]);
+  };
+
+  const handleBulkAction = async (action, ids = selectedThreadIds) => {
+    if (!ids.length) return;
+    setActionError('');
+    const res = await fetch('/api/emails/bulk', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ threadIds: ids, action }),
+    });
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setActionError(data.error || 'Unable to update selected messages.');
+      return;
+    }
+
+    setSelectedThreadIds((current) => current.filter((id) => !ids.includes(id)));
+    await load();
+  };
+
+  const handleBulkDelete = async () => {
+    if (!selectedThreadIds.length) return;
+    if (typeof window !== 'undefined' && !window.confirm(`Delete ${selectedThreadIds.length} conversation(s) permanently?`)) return;
+
+    const res = await fetch('/api/emails/bulk', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ threadIds: selectedThreadIds, action: 'delete' }),
+    });
+
+    if (!res.ok) {
+      setActionError('Unable to delete selected messages.');
+      return;
+    }
+
+    setSelectedThreadIds([]);
+    setSelectedThread(null);
+    await load();
+  };
+
+  const toggleThreadSelection = (threadId) => {
+    setSelectedThreadIds((current) => current.includes(threadId) ? current.filter((id) => id !== threadId) : [...current, threadId]);
+  };
+
+  const toggleThreadStar = async (threadId, starred) => {
+    await fetch(`/api/emails/${threadId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ starred: !starred }),
+    });
+    await load();
   };
 
   const handleDeleteThread = async (threadId) => {
@@ -233,6 +302,15 @@ export default function Inbox() {
   };
 
   const unreadCount = unreadThreadIds.length;
+  const folderFilters = [
+    { value: 'inbox', label: 'Inbox' },
+    { value: 'starred', label: 'Starred' },
+    { value: 'archive', label: 'Archive' },
+    { value: 'spam', label: 'Spam' },
+    { value: 'drafts', label: 'Drafts' },
+    { value: 'sent', label: 'Sent' },
+    { value: 'all', label: 'All mail' },
+  ];
 
   return (
     <main className="mail-layout" style={styles.main}>
@@ -243,6 +321,19 @@ export default function Inbox() {
             {unreadCount > 0 && <span style={styles.unreadPill}>{unreadCount} unread</span>}
             <button style={styles.refreshBtn} onClick={load}>⟳</button>
           </div>
+        </div>
+
+        <div style={styles.folderWrap}>
+          {folderFilters.map((folder) => (
+            <button
+              key={folder.value}
+              type="button"
+              onClick={() => setSelectedFolder(folder.value)}
+              style={{ ...styles.filterButton, ...(selectedFolder === folder.value ? styles.filterButtonActive : {}) }}
+            >
+              {folder.label}
+            </button>
+          ))}
         </div>
 
         <div style={styles.filterWrap}>
@@ -281,6 +372,18 @@ export default function Inbox() {
           />
         </div>
 
+        {selectedThreadIds.length > 0 && (
+          <div style={styles.bulkToolbar}>
+            <strong>{selectedThreadIds.length} selected</strong>
+            <button type="button" style={styles.bulkButton} onClick={() => handleBulkAction('read')}>Read</button>
+            <button type="button" style={styles.bulkButton} onClick={() => handleBulkAction('star')}>Star</button>
+            <button type="button" style={styles.bulkButton} onClick={() => handleBulkAction('archive')}>Archive</button>
+            <button type="button" style={styles.bulkButton} onClick={() => handleBulkAction('spam')}>Spam</button>
+            <button type="button" style={styles.bulkDeleteButton} onClick={handleBulkDelete}>Delete</button>
+          </div>
+        )}
+        {actionError && <p style={styles.actionError}>{actionError}</p>}
+
         {loading ? (
           <div style={styles.skeletonList}>
             {[1, 2, 3].map((item) => (
@@ -291,7 +394,7 @@ export default function Inbox() {
           <div style={styles.emptyState}>
             <div style={styles.emptyTitle}>No messages in this inbox</div>
             <p style={styles.emptyText}>Try another mailbox group or clear your search.</p>
-            <button type="button" style={styles.emptyAction} onClick={() => { setSearch(''); setSelectedMailbox('all'); }}>
+            <button type="button" style={styles.emptyAction} onClick={() => { setSearch(''); setSelectedMailbox('all'); setSelectedFolder('all'); }}>
               Show all inboxes
             </button>
           </div>
@@ -302,10 +405,15 @@ export default function Inbox() {
           const isUnread = latest && latest.direction === 'inbound' && unreadThreadIds.includes(thread[0].thread_id);
           const preview = (splitEmailBody(latest?.text_body).main || latest?.subject || '').replace(/\s+/g, ' ').trim();
 
+          const isStarred = thread.some((msg) => msg.starred);
+
           return (
-            <button
+            <div
               key={thread[0].thread_id}
               onClick={() => handleSelectThread(thread[0].thread_id)}
+              onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') handleSelectThread(thread[0].thread_id); }}
+              role="button"
+              tabIndex={0}
               style={{
                 ...styles.threadItem,
                 background: selectedThread === thread[0].thread_id ? '#1e293b' : 'transparent',
@@ -313,8 +421,18 @@ export default function Inbox() {
               }}
             >
               <div style={styles.threadTopRow}>
+                <input
+                  type="checkbox"
+                  checked={selectedThreadIds.includes(thread[0].thread_id)}
+                  onChange={() => toggleThreadSelection(thread[0].thread_id)}
+                  onClick={(event) => event.stopPropagation()}
+                  aria-label={`Select ${latest.subject || 'conversation'}`}
+                />
                 <div style={styles.threadFrom}>{latest.from_address}</div>
                 {isUnread && <span style={styles.unreadBadge}>New</span>}
+                <button type="button" style={styles.starButton} onClick={(event) => { event.stopPropagation(); toggleThreadStar(thread[0].thread_id, isStarred); }} aria-label={isStarred ? 'Unstar conversation' : 'Star conversation'}>
+                  {isStarred ? '★' : '☆'}
+                </button>
               </div>
               <div style={styles.threadPreview}>{preview.slice(0, 90)}{preview.length > 90 ? '…' : ''}</div>
               <div style={styles.threadDateRow}>
@@ -330,7 +448,7 @@ export default function Inbox() {
                   Archive
                 </button>
               </div>
-            </button>
+            </div>
           );
         })}
       </aside>
@@ -372,12 +490,15 @@ export default function Inbox() {
                     {attachments.length > 0 && (
                       <div style={styles.attachmentList}>
                         {attachments.map((attachment, index) => (
-                          <span key={`${attachment.filename || attachment.name || 'file'}-${index}`} style={styles.attachmentItem}>
-                            <a href={`/api/emails/${msg.id}/attachment?index=${index}`} target="_blank" rel="noreferrer" style={styles.attachmentLink}>
-                              {attachment.filename || attachment.name || 'Attachment'}
-                            </a>
+                          <div key={`${attachment.filename || attachment.name || 'file'}-${index}`} style={styles.attachmentItem}>
+                            {String(attachment.mimeType || attachment.contentType || '').startsWith('image/') && attachment.content && (
+                              <img src={`/api/emails/${msg.id}/attachment?index=${index}`} alt={attachment.filename || attachment.name || 'Attachment'} style={styles.attachmentPreview} />
+                            )}
+                            <span style={styles.fileIcon}>{getFileIcon(attachment)}</span>
+                            <span>{attachment.filename || attachment.name || 'Attachment'}</span>
+                            <a href={`/api/emails/${msg.id}/attachment?index=${index}`} target="_blank" rel="noreferrer" style={styles.attachmentLink}>Open</a>
                             {attachment.content && <a href={`/api/emails/${msg.id}/attachment?index=${index}&download=1`} style={styles.downloadLink}>Download</a>}
-                          </span>
+                          </div>
                         ))}
                       </div>
                     )}
@@ -452,12 +573,47 @@ const styles = {
     fontWeight: 700,
   },
   h2: { margin: 0, fontSize: 18 },
+  folderWrap: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 8,
+    padding: '0 16px 12px',
+    borderBottom: '1px solid #1e293b',
+  },
   filterWrap: {
     display: 'flex',
     flexWrap: 'wrap',
     gap: 8,
     padding: '0 16px 12px',
   },
+  bulkToolbar: {
+    display: 'flex',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    padding: '0 16px 12px',
+    color: '#cbd5e1',
+    fontSize: 11,
+  },
+  bulkButton: {
+    background: '#17283b',
+    border: '1px solid #36536e',
+    color: '#d7e5f2',
+    borderRadius: 6,
+    padding: '5px 7px',
+    cursor: 'pointer',
+    fontSize: 11,
+  },
+  bulkDeleteButton: {
+    background: '#7f1d1d',
+    border: '1px solid #b91c1c',
+    color: '#fee2e2',
+    borderRadius: 6,
+    padding: '5px 7px',
+    cursor: 'pointer',
+    fontSize: 11,
+  },
+  actionError: { color: '#fca5a5', padding: '0 16px', fontSize: 12 },
   filterButton: {
     background: '#111827',
     border: '1px solid #334155',
@@ -541,6 +697,15 @@ const styles = {
     color: 'inherit',
   },
   threadTopRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+    starButton: {
+      background: 'transparent',
+      border: 'none',
+      color: '#fbbf24',
+      fontSize: 18,
+      lineHeight: 1,
+      padding: 0,
+      cursor: 'pointer',
+    },
   threadFrom: { fontSize: 13, fontWeight: 600, flex: 1 },
   unreadBadge: {
     background: '#22c55e',
@@ -580,10 +745,29 @@ const styles = {
   attachmentItem: {
     background: '#e2e8f0',
     color: '#0f172a',
-    borderRadius: 999,
-    padding: '4px 8px',
+    borderRadius: 8,
+    padding: '6px 8px',
     fontSize: 11,
     fontWeight: 600,
+    display: 'flex',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  attachmentPreview: {
+    display: 'block',
+    width: 120,
+    maxHeight: 100,
+    objectFit: 'cover',
+    borderRadius: 6,
+    flexBasis: '100%',
+  },
+  fileIcon: {
+    background: '#cbd5e1',
+    borderRadius: 4,
+    padding: '2px 4px',
+    fontSize: 9,
+    color: '#334155',
   },
   expandBtn: {
     marginTop: 8,

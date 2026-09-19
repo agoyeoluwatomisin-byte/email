@@ -45,6 +45,7 @@ export default async function handler(req, res) {
     subject,
     text_body: text,
     html_body: html,
+    folder: 'inbox',
     attachments: Array.isArray(attachments) ? attachments.slice(0, 10) : [],
   });
 
