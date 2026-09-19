@@ -9,10 +9,28 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { threadId, to, subject, message, inReplyToMessageId } = req.body || {};
+  const { threadId, to, from, subject, message, inReplyToMessageId } = req.body || {};
 
   if (!threadId || !to || !subject || !message) {
     return res.status(400).json({ error: 'threadId, to, subject, and message are required' });
+  }
+
+  // Resolve which address to reply FROM. If the caller supplied one (e.g. the
+  // address the original email was sent to), use it - but only if it's on
+  // our verified sending domain. Otherwise fall back to the default address.
+  const defaultFrom = process.env.RESEND_FROM_ADDRESS;
+  const defaultFromEmail = (defaultFrom.match(/<(.+)>/)?.[1] || defaultFrom).trim();
+  const verifiedDomain = defaultFromEmail.split('@')[1]?.toLowerCase();
+
+  let fromAddress = defaultFrom;
+  if (from) {
+    const requestedEmail = String(from).trim().toLowerCase();
+    const requestedDomain = requestedEmail.split('@')[1];
+    if (requestedDomain && verifiedDomain && requestedDomain === verifiedDomain) {
+      fromAddress = requestedEmail;
+    }
+    // If it doesn't match our verified domain, we silently keep defaultFrom -
+    // Resend would reject the send anyway for an unverified domain.
   }
 
   const normalizedMessage = String(message).trim();
@@ -30,14 +48,14 @@ export default async function handler(req, res) {
 
   try {
     const { data, error } = await resend.emails.send({
-      from: process.env.RESEND_FROM_ADDRESS,
+      from: fromAddress,
       to: [to],
       subject: normalizedSubject.startsWith('Re:') ? normalizedSubject : `Re: ${normalizedSubject}`,
       text: normalizedMessage,
       html: `<p>${escapeHtml(normalizedMessage).replace(/\n/g, '<br/>')}</p>`,
       headers: {
         ...(inReplyToMessageId ? { 'In-Reply-To': inReplyToMessageId, References: inReplyToMessageId } : {}),
-        'List-Unsubscribe': `<mailto:${process.env.RESEND_FROM_ADDRESS}>`,
+        'List-Unsubscribe': `<mailto:${defaultFromEmail}>`,
         'X-Entity-Ref-ID': `reply-${Date.now()}`,
       },
     });
@@ -51,7 +69,7 @@ export default async function handler(req, res) {
       direction: 'outbound',
       message_id: data?.id || null,
       in_reply_to: inReplyToMessageId || null,
-      from_address: process.env.RESEND_FROM_ADDRESS,
+      from_address: fromAddress,
       to_address: to,
       subject: normalizedSubject,
       text_body: normalizedMessage,

@@ -287,6 +287,7 @@ export default function Inbox() {
         body: JSON.stringify({
           threadId: lastInbound.thread_id,
           to: lastInbound.from_address,
+          from: lastInbound.to_address,
           subject: lastInbound.subject,
           message: trimmedReply,
           inReplyToMessageId: lastInbound.message_id,
