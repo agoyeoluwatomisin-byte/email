@@ -36,14 +36,14 @@ export default function LoginPage() {
   };
 
   return (
-    <div style={styles.wrapper}>
-      <div style={styles.card}>
+    <div className="login-page" style={styles.wrapper}>
+      <div className="login-card" style={styles.card}>
         <div style={styles.header}>
           <div style={styles.brand}>Email Portal</div>
           <h1 style={styles.title}>Sign in</h1>
         </div>
 
-        <form onSubmit={handleSubmit} style={styles.form}>
+        <form className="login-form" onSubmit={handleSubmit} style={styles.form}>
           <label style={styles.label} htmlFor="email">
             Email address
           </label>

@@ -9,6 +9,7 @@ export default function App({ Component, pageProps }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -34,6 +35,10 @@ export default function App({ Component, pageProps }) {
         setIsReady(true);
         if (!isLoginPage) router.replace('/login');
       });
+  }, [router.pathname]);
+
+  useEffect(() => {
+    setIsMobileMenuOpen(false);
   }, [router.pathname]);
 
   useEffect(() => {
@@ -92,6 +97,7 @@ export default function App({ Component, pageProps }) {
         <title>Agosoft Email Portal</title>
         <meta name="description" content="Agosoft email inbox, outbox, and analytics portal." />
         <meta name="theme-color" content="#0f172a" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-title" content="Email Portal" />
@@ -106,12 +112,25 @@ export default function App({ Component, pageProps }) {
             borderBottom: `1px solid ${theme.navBorder}`,
           }}
           className="app-nav"
+          data-mobile-menu-open={isMobileMenuOpen ? 'true' : 'false'}
           aria-label="Main navigation"
         >
           <div className="app-nav-brand" style={{ ...styles.brand, color: theme.navText }}>Email</div>
 
+          <button
+            type="button"
+            className="app-menu-toggle"
+            style={{ ...styles.mobileMenuToggle, background: theme.toggleBackground, color: theme.toggleText }}
+            onClick={() => setIsMobileMenuOpen((current) => !current)}
+            aria-expanded={isMobileMenuOpen}
+            aria-controls="primary-navigation"
+          >
+            <span aria-hidden="true">☰</span>
+            <span className="sr-only">Menu</span>
+          </button>
+
           <div className="app-nav-actions" style={styles.navActions}>
-            <div className="app-nav-links" style={styles.navLinks}>
+            <div id="primary-navigation" className="app-nav-links" style={styles.navLinks}>
               {navItems.map((item) => {
                 const isActive = router.pathname === item.href;
 
@@ -203,6 +222,15 @@ const styles = {
     padding: '8px 12px',
     fontSize: 12,
     fontWeight: 700,
+    cursor: 'pointer',
+  },
+  mobileMenuToggle: {
+    display: 'none',
+    border: 'none',
+    borderRadius: 8,
+    minWidth: 44,
+    minHeight: 44,
+    fontSize: 20,
     cursor: 'pointer',
   },
   pageShell: {

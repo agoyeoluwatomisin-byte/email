@@ -120,7 +120,7 @@ export default function Dashboard() {
   );
 
   return (
-    <main style={styles.page}>
+    <main className="dashboard-page" style={styles.page}>
       <div style={styles.header}>
         <div>
           <p style={styles.kicker}>Overview</p>
@@ -148,9 +148,9 @@ export default function Dashboard() {
 
           <section style={styles.card}>
             <h2 style={styles.sectionTitle}>Thread board</h2>
-            <div style={styles.board}>
+            <div className="dashboard-board" style={styles.board}>
               {statusColumns.map((column) => (
-                <div key={column.value} style={styles.boardColumn}>
+                <div key={column.value} className="boardColumn" style={styles.boardColumn}>
                   <div style={styles.boardHeading}>
                     <span>{column.label}</span>
                     <strong>{threads.filter((thread) => thread.status === column.value).length}</strong>
@@ -181,7 +181,7 @@ export default function Dashboard() {
             </div>
           </section>
 
-          <section style={styles.twoColumn}>
+          <section className="dashboard-two-column" style={styles.twoColumn}>
             <div style={styles.card}>
               <h2 style={styles.sectionTitle}>Weekly trend</h2>
               <div style={styles.trendList}>

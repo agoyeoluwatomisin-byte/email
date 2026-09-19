@@ -134,8 +134,8 @@ export default function Home() {
   );
 
   return (
-    <main style={styles.main}>
-      <div style={styles.card}>
+    <main className="compose-page" style={styles.main}>
+      <div className="compose-card" style={styles.card}>
         <h1 style={styles.h1}>Send an email</h1>
         <p style={styles.subtitle}>Sent from your verified domain via Resend.</p>
 
@@ -177,7 +177,7 @@ export default function Home() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} style={styles.form}>
+        <form className="compose-form" onSubmit={handleSubmit} style={styles.form}>
           <label style={styles.label}>
             To
             <input
@@ -252,7 +252,7 @@ export default function Home() {
             )}
           </label>
 
-          <div style={styles.formFooter}>
+          <div className="compose-footer" style={styles.formFooter}>
             <button style={styles.button} type="submit" disabled={status.state === 'loading'}>
               {status.state === 'loading' ? 'Sending…' : 'Send email'}
             </button>
