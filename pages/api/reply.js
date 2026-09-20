@@ -42,19 +42,20 @@ export default async function handler(req, res) {
   // Resolve which address to reply FROM. If the caller supplied one (e.g. the
   // address the original email was sent to), use it - but only if it's on
   // our verified sending domain. Otherwise fall back to the default address.
-  const defaultFromEmail = (defaultFrom.match(/<(.+)>/)?.[1] || defaultFrom).trim();
+  const defaultFromEmail = extractEmail(defaultFrom);
   const verifiedDomain = defaultFromEmail.split('@')[1]?.toLowerCase();
+  const defaultName = defaultFrom.match(/^\s*"?([^"<]+?)"?\s*</)?.[1]?.trim();
 
   let fromAddress = defaultFrom;
-  if (from) {
-    const requestedEmail = String(from).trim().toLowerCase();
-    const requestedDomain = requestedEmail.split('@')[1];
-    if (requestedDomain && verifiedDomain && requestedDomain === verifiedDomain) {
-      fromAddress = requestedEmail;
-    }
-    // If it doesn't match our verified domain, we silently keep defaultFrom -
-    // Resend would reject the send anyway for an unverified domain.
+  let replyToAddress = defaultFromEmail;
+  const requestedEmail = pickAddressOnDomain(from, verifiedDomain);
+  if (requestedEmail) {
+    // Keep the display name from RESEND_FROM_ADDRESS, swap in the address the customer wrote to.
+    fromAddress = defaultName ? `${defaultName} <${requestedEmail}>` : requestedEmail;
+    replyToAddress = requestedEmail;
   }
+  // If nothing matches our verified domain we keep defaultFrom -
+  // Resend would reject the send anyway for an unverified domain.
 
   const normalizedMessage = String(message).trim();
   const normalizedSubject = String(subject).trim();
@@ -100,7 +101,8 @@ export default async function handler(req, res) {
             .split(',')
             .map((item) => item.trim())
             .filter(Boolean),
-      replyTo: fromAddress,
+      from: fromAddress,
+      replyTo: replyToAddress,
       subject:
         normalizedSubject.startsWith('Re:') || action === 'forward' ? normalizedSubject : `Re: ${normalizedSubject}`,
       text: textBody,
@@ -127,6 +129,22 @@ export default async function handler(req, res) {
     console.error('reply error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });
   }
+}
+
+function extractEmail(value) {
+  return (String(value || '').match(/<([^>]+)>/)?.[1] || String(value || '')).trim().toLowerCase();
+}
+
+// `to_address` on an inbound message can be "sales@x.com", "Sales <sales@x.com>",
+// or a comma-separated list. Return the first address on the verified domain.
+function pickAddressOnDomain(value, domain) {
+  if (!value || !domain) return null;
+  const candidates = Array.isArray(value) ? value : String(value).split(',');
+  for (const candidate of candidates) {
+    const email = extractEmail(candidate);
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.split('@')[1] === domain) return email;
+  }
+  return null;
 }
 
 function escapeHtml(str) {
