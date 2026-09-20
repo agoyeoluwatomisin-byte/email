@@ -211,6 +211,7 @@ export default async function handler(req, res) {
     autoSubmitted,
     precedence,
     isFirstInbound: !(priorInbound || []).length,
+    assignedUser,
   });
 
   return res.status(200).json({ success: true });
@@ -234,15 +235,48 @@ async function notifyOutboundWebhook(payload) {
   }
 }
 
-async function maybeAutoReply({ from, to, subject, text, threadId, autoSubmitted, precedence, isFirstInbound }) {
+async function maybeAutoReply({
+  from,
+  to,
+  subject,
+  text,
+  threadId,
+  autoSubmitted,
+  precedence,
+  isFirstInbound,
+  assignedUser,
+}) {
   if (!isFirstInbound || /no[-_ ]?reply/i.test(from) || autoSubmitted || /bulk|list/i.test(String(precedence || '')))
     return;
-  const { data: setting } = await supabaseAdmin
-    .from('mailbox_settings')
-    .select('auto_reply_enabled, business_hours_reply, out_of_hours_reply')
-    .eq('label', deriveInboundLabel(to))
-    .maybeSingle();
-  if (!setting?.auto_reply_enabled) return;
+
+  // A personal away message from the agent this thread landed on takes
+  // priority over the generic mailbox-level auto-reply below.
+  let message = null;
+  if (assignedUser) {
+    const { data: agent } = await supabaseAdmin
+      .from('users')
+      .select('availability, away_message')
+      .eq('email', assignedUser)
+      .maybeSingle();
+    if (agent?.availability === 'away') {
+      message =
+        agent.away_message ||
+        "Thanks for your message. I'm away right now and will get back to you as soon as I'm back.";
+    }
+  }
+
+  if (!message) {
+    const { data: setting } = await supabaseAdmin
+      .from('mailbox_settings')
+      .select('auto_reply_enabled, business_hours_reply, out_of_hours_reply')
+      .eq('label', deriveInboundLabel(to))
+      .maybeSingle();
+    if (!setting?.auto_reply_enabled) return;
+    message =
+      setting.business_hours_reply ||
+      'Thanks for contacting us. We have received your message and will be in touch soon.';
+  }
+
   const { data: recent } = await supabaseAdmin
     .from('emails')
     .select('id')
@@ -251,9 +285,7 @@ async function maybeAutoReply({ from, to, subject, text, threadId, autoSubmitted
     .gte('received_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
     .limit(1);
   if (recent?.length) return;
-  const message =
-    setting.business_hours_reply ||
-    'Thanks for contacting us. We have received your message and will be in touch soon.';
+
   try {
     await sendOutboundEmail({
       threadId,

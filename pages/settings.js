@@ -6,6 +6,7 @@ import { useToast } from '../components/ui/Toast';
 
 const sections = [
   ['profile', 'Profile & signature'],
+  ['availability', 'Away message'],
   ['notifications', 'Notifications'],
   ['security', 'Security'],
   ['canned', 'Canned responses'],
@@ -27,6 +28,7 @@ export default function Settings() {
       <PageHeader title="Settings" description="Tune the workspace to fit the way your team works." />
       <div className="settings-tabs"><Tabs items={visibleSections.map(([value, label]) => ({ value, label }))} value={activeSection} onChange={setSection} /></div>
       {activeSection === 'profile' && <ProfileSection />}
+      {activeSection === 'availability' && <AvailabilitySection />}
       {activeSection === 'notifications' && <NotificationsSection />}
       {activeSection === 'security' && <SecuritySection />}
       {activeSection === 'canned' && <CannedSection />}
@@ -44,6 +46,54 @@ function ProfileSection() {
   useEffect(() => { fetch('/api/signature').then((response) => response.json()).then((data) => setSignature(data.signature || signature)).finally(() => setLoading(false)); }, []);
   const save = async (event) => { event.preventDefault(); const response = await fetch('/api/signature', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(signature) }); toast(response.ok ? 'Signature saved.' : 'Unable to save signature.', response.ok ? 'success' : 'error'); };
   return <SettingsCard title="Profile and signature" description="Your signature is appended to outbound replies.">{loading ? <Skeleton /> : <form className="settings-form" onSubmit={save}><Textarea label="Signature HTML" value={signature.signature_html || ''} onChange={(event) => setSignature({ ...signature, signature_html: event.target.value })} /><Textarea label="Plain-text fallback" value={signature.signature_text || ''} onChange={(event) => setSignature({ ...signature, signature_text: event.target.value })} /><SaveButton /></form>}</SettingsCard>;
+}
+
+function AvailabilitySection() {
+  const { toast } = useToast();
+  const [state, setState] = useState({ availability: 'available', awayMessage: '' });
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    fetch('/api/availability')
+      .then((response) => response.json())
+      .then((data) => setState({ availability: data.availability || 'available', awayMessage: data.awayMessage || '' }))
+      .finally(() => setLoading(false));
+  }, []);
+  const away = state.availability === 'away';
+  const save = async (event) => {
+    event.preventDefault();
+    const response = await fetch('/api/availability', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(state),
+    });
+    toast(response.ok ? 'Availability saved.' : 'Unable to save availability.', response.ok ? 'success' : 'error');
+  };
+  return (
+    <SettingsCard
+      title="Away message"
+      description="While you're marked away, this message is sent automatically the first time someone emails a thread assigned to you."
+    >
+      {loading ? (
+        <Skeleton />
+      ) : (
+        <form className="settings-form" onSubmit={save}>
+          <Toggle
+            checked={away}
+            onChange={(value) => setState({ ...state, availability: value ? 'away' : 'available' })}
+            label={away ? "You're marked away" : "You're marked available"}
+          />
+          <Textarea
+            label="Automatic reply"
+            value={state.awayMessage}
+            onChange={(event) => setState({ ...state, awayMessage: event.target.value })}
+            placeholder="Thanks for your message. I'm away right now and will reply as soon as I'm back."
+            disabled={!away}
+          />
+          <SaveButton />
+        </form>
+      )}
+    </SettingsCard>
+  );
 }
 
 function NotificationsSection() {
