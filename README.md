@@ -38,20 +38,20 @@ Do not run `feature-09-admin-user.example.sql` unchanged. It is a template only.
 
 Put these values in `.env.local`:
 
-| Variable | Purpose |
-| --- | --- |
-| `SUPABASE_URL` | Supabase project URL. |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server-only Supabase service-role key; never expose it to the browser. |
-| `SESSION_SECRET` | Secret used to sign seven-day staff session cookies. |
-| `RESEND_API_KEY` | Resend API key. |
-| `RESEND_FROM_ADDRESS` | Verified Resend sender address, optionally in `Name <address>` form. |
-| `INBOUND_SHARED_SECRET` | Secret accepted by `/api/inbound` from the worker. |
-| `INBOUND_NOTIFICATION_EMAIL` | Optional address that receives a short inbound notification. |
-| `SUPABASE_ATTACHMENTS_BUCKET` | Optional private Storage bucket name; defaults to `email-attachments`. |
-| `ALLOWED_RECIPIENTS` | Optional comma-separated recipient allow-list for staff sends. |
-| `CONTACT_WIDGET_TO_EMAIL` | Destination for contact-widget notifications. |
-| `CONTACT_WIDGET_ALLOWED_ORIGINS` | Comma-separated browser origins allowed to submit the widget. |
-| `CONTACT_WIDGET_ALLOW_ANY_ORIGIN` | Must be `true` to make `*` in the origin list effective. |
+| Variable                          | Purpose                                                                |
+| --------------------------------- | ---------------------------------------------------------------------- |
+| `SUPABASE_URL`                    | Supabase project URL.                                                  |
+| `SUPABASE_SERVICE_ROLE_KEY`       | Server-only Supabase service-role key; never expose it to the browser. |
+| `SESSION_SECRET`                  | Secret used to sign seven-day staff session cookies.                   |
+| `RESEND_API_KEY`                  | Resend API key.                                                        |
+| `RESEND_FROM_ADDRESS`             | Verified Resend sender address, optionally in `Name <address>` form.   |
+| `INBOUND_SHARED_SECRET`           | Secret accepted by `/api/inbound` from the worker.                     |
+| `INBOUND_NOTIFICATION_EMAIL`      | Optional address that receives a short inbound notification.           |
+| `SUPABASE_ATTACHMENTS_BUCKET`     | Optional private Storage bucket name; defaults to `email-attachments`. |
+| `ALLOWED_RECIPIENTS`              | Optional comma-separated recipient allow-list for staff sends.         |
+| `CONTACT_WIDGET_TO_EMAIL`         | Destination for contact-widget notifications.                          |
+| `CONTACT_WIDGET_ALLOWED_ORIGINS`  | Comma-separated browser origins allowed to submit the widget.          |
+| `CONTACT_WIDGET_ALLOW_ANY_ORIGIN` | Must be `true` to make `*` in the origin list effective.               |
 
 Create the first staff user with the service-role key in `.env.local`:
 
@@ -65,10 +65,10 @@ The script hashes passwords with bcrypt cost 12 and upserts the user.
 
 Set these Worker secrets from `cloudflare-worker/`:
 
-| Secret | Purpose |
-| --- | --- |
-| `INBOUND_WEBHOOK_URL` | Full app URL ending in `/api/inbound`. |
-| `INBOUND_SHARED_SECRET` | Must match the app variable with the same purpose. |
+| Secret                     | Purpose                                                                  |
+| -------------------------- | ------------------------------------------------------------------------ |
+| `INBOUND_WEBHOOK_URL`      | Full app URL ending in `/api/inbound`.                                   |
+| `INBOUND_SHARED_SECRET`    | Must match the app variable with the same purpose.                       |
 | `FALLBACK_FORWARD_ADDRESS` | Optional address to forward mail to after three failed webhook attempts. |
 
 Deploy with:
@@ -129,37 +129,37 @@ Scheduled sends and weekly reports remain available through the protected task e
 
 ## Complete environment table
 
-| Variable | Used for |
-| --- | --- |
-| `SUPABASE_URL` | Supabase project URL. |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server-only Supabase service-role key. |
-| `SESSION_SECRET` | Cookie, CSAT, and reset-token signing. |
-| `RESEND_API_KEY` | Resend delivery. |
-| `RESEND_FROM_ADDRESS` | Verified sender address. |
-| `RESEND_WEBHOOK_SECRET` | Svix/Resend webhook signature verification. |
-| `INBOUND_SHARED_SECRET` | Worker to `/api/inbound` authentication. |
-| `INBOUND_NOTIFICATION_EMAIL` | Optional inbound notification recipient. |
-| `SUPABASE_ATTACHMENTS_BUCKET` | Private Storage bucket name. |
-| `ALLOWED_RECIPIENTS` | Optional staff-recipient allow list. |
-| `CONTACT_WIDGET_TO_EMAIL` | Default widget destination. |
-| `CONTACT_WIDGET_ALLOWED_ORIGINS` | Default widget CORS origins. |
-| `CONTACT_WIDGET_ALLOW_ANY_ORIGIN` | Explicitly enables `*` origin entries. |
-| `TURNSTILE_SECRET_KEY` | Optional Cloudflare Turnstile verification. |
-| `SCHEDULED_TASK_SECRET` | Authentication for external scheduled-task requests. |
-| `APP_URL` | Absolute links for reset and CSAT pages. |
-| `CSAT_ENABLED` | Enables close-thread survey invitations. |
-| `UPSTASH_REDIS_REST_URL` | Optional shared rate limiter endpoint. |
-| `UPSTASH_REDIS_REST_TOKEN` | Optional shared rate limiter token. |
-| `SENTRY_DSN` | Optional structured error reporting destination. |
-| `OUTBOUND_WEBHOOK_URL` | Optional inbound event webhook destination. |
-| `OUTBOUND_WEBHOOK_SECRET` | Optional HMAC secret for that webhook. |
+| Variable                          | Used for                                             |
+| --------------------------------- | ---------------------------------------------------- |
+| `SUPABASE_URL`                    | Supabase project URL.                                |
+| `SUPABASE_SERVICE_ROLE_KEY`       | Server-only Supabase service-role key.               |
+| `SESSION_SECRET`                  | Cookie, CSAT, and reset-token signing.               |
+| `RESEND_API_KEY`                  | Resend delivery.                                     |
+| `RESEND_FROM_ADDRESS`             | Verified sender address.                             |
+| `RESEND_WEBHOOK_SECRET`           | Svix/Resend webhook signature verification.          |
+| `INBOUND_SHARED_SECRET`           | Worker to `/api/inbound` authentication.             |
+| `INBOUND_NOTIFICATION_EMAIL`      | Optional inbound notification recipient.             |
+| `SUPABASE_ATTACHMENTS_BUCKET`     | Private Storage bucket name.                         |
+| `ALLOWED_RECIPIENTS`              | Optional staff-recipient allow list.                 |
+| `CONTACT_WIDGET_TO_EMAIL`         | Default widget destination.                          |
+| `CONTACT_WIDGET_ALLOWED_ORIGINS`  | Default widget CORS origins.                         |
+| `CONTACT_WIDGET_ALLOW_ANY_ORIGIN` | Explicitly enables `*` origin entries.               |
+| `TURNSTILE_SECRET_KEY`            | Optional Cloudflare Turnstile verification.          |
+| `SCHEDULED_TASK_SECRET`           | Authentication for external scheduled-task requests. |
+| `APP_URL`                         | Absolute links for reset and CSAT pages.             |
+| `CSAT_ENABLED`                    | Enables close-thread survey invitations.             |
+| `UPSTASH_REDIS_REST_URL`          | Optional shared rate limiter endpoint.               |
+| `UPSTASH_REDIS_REST_TOKEN`        | Optional shared rate limiter token.                  |
+| `SENTRY_DSN`                      | Optional structured error reporting destination.     |
+| `OUTBOUND_WEBHOOK_URL`            | Optional inbound event webhook destination.          |
+| `OUTBOUND_WEBHOOK_SECRET`         | Optional HMAC secret for that webhook.               |
 
 Worker secrets in addition to the application variables:
 
-| Secret | Used for |
-| --- | --- |
-| `INBOUND_WEBHOOK_URL` | Full deployed `/api/inbound` URL. |
-| `INBOUND_SHARED_SECRET` | Must match the application secret. |
+| Secret                     | Used for                              |
+| -------------------------- | ------------------------------------- |
+| `INBOUND_WEBHOOK_URL`      | Full deployed `/api/inbound` URL.     |
+| `INBOUND_SHARED_SECRET`    | Must match the application secret.    |
 | `FALLBACK_FORWARD_ADDRESS` | Optional failure-forward destination. |
 
 ## Simplifications and follow-up

@@ -8,7 +8,19 @@ export default async function handler(req, res) {
 
   if (!(await requireSession(req, res))) return;
 
-  const { direction, threadId, folder, starred, search, senderDomain, fromDate, toDate, read, before, limit = '300' } = req.query || {};
+  const {
+    direction,
+    threadId,
+    folder,
+    starred,
+    search,
+    senderDomain,
+    fromDate,
+    toDate,
+    read,
+    before,
+    limit = '300',
+  } = req.query || {};
 
   let query = supabaseAdmin.from('emails').select('*');
   if (folder !== 'trash') query = query.is('deleted_at', null);
@@ -53,7 +65,9 @@ export default async function handler(req, res) {
   }
 
   if (search) {
-    const term = String(search).trim().replace(/[%(),]/g, ' ');
+    const term = String(search)
+      .trim()
+      .replace(/[%(),]/g, ' ');
     if (term) {
       query = query.textSearch('search_vector', term, { type: 'websearch', config: 'simple' });
     }
@@ -77,7 +91,11 @@ export default async function handler(req, res) {
 
   const messageIds = (data || []).map((email) => email.message_id).filter(Boolean);
   const { data: events } = messageIds.length
-    ? await supabaseAdmin.from('email_events').select('message_id, event_type, occurred_at').in('message_id', messageIds).order('occurred_at', { ascending: false })
+    ? await supabaseAdmin
+        .from('email_events')
+        .select('message_id, event_type, occurred_at')
+        .in('message_id', messageIds)
+        .order('occurred_at', { ascending: false })
     : { data: [] };
   const latestEvents = new Map();
   for (const event of events || []) if (!latestEvents.has(event.message_id)) latestEvents.set(event.message_id, event);
@@ -96,12 +114,21 @@ async function loadLegacyEmails(params) {
   if (params.direction) legacyQuery = legacyQuery.eq('direction', params.direction);
   if (params.starred === 'true') legacyQuery = legacyQuery.eq('starred', true);
   if (params.read === 'true' || params.read === 'false') legacyQuery = legacyQuery.eq('read', params.read === 'true');
-  const result = await legacyQuery.order('received_at', { ascending: false }).limit(Math.min(Math.max(Number(params.limit) || 300, 1), 500));
+  const result = await legacyQuery
+    .order('received_at', { ascending: false })
+    .limit(Math.min(Math.max(Number(params.limit) || 300, 1), 500));
   if (result.error) return result;
   const folder = params.folder;
   const filtered = (result.data || []).filter((email) => {
-    if (folder && folder !== 'all' && folder !== 'starred' && folder !== 'sent' && email.folder !== folder) return false;
-    if (params.senderDomain && !String(email.sender_domain || '').toLowerCase().includes(String(params.senderDomain).toLowerCase())) return false;
+    if (folder && folder !== 'all' && folder !== 'starred' && folder !== 'sent' && email.folder !== folder)
+      return false;
+    if (
+      params.senderDomain &&
+      !String(email.sender_domain || '')
+        .toLowerCase()
+        .includes(String(params.senderDomain).toLowerCase())
+    )
+      return false;
     return true;
   });
   return { data: filtered, error: null };

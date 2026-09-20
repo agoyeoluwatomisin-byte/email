@@ -19,11 +19,29 @@ export default async function handler(req, res) {
   const expectedSecret = process.env.INBOUND_SHARED_SECRET || '';
   const providedSecret = Buffer.from(String(secret || ''));
   const expectedSecretBuffer = Buffer.from(expectedSecret);
-  if (!secret || providedSecret.length !== expectedSecretBuffer.length || !crypto.timingSafeEqual(providedSecret, expectedSecretBuffer)) {
+  if (
+    !secret ||
+    providedSecret.length !== expectedSecretBuffer.length ||
+    !crypto.timingSafeEqual(providedSecret, expectedSecretBuffer)
+  ) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  const { messageId, inReplyTo, references, from, to, subject, text, html, attachments, xWidget, authenticationResults, autoSubmitted, precedence } = req.body || {};
+  const {
+    messageId,
+    inReplyTo,
+    references,
+    from,
+    to,
+    subject,
+    text,
+    html,
+    attachments,
+    xWidget,
+    authenticationResults,
+    autoSubmitted,
+    precedence,
+  } = req.body || {};
 
   if (xWidget) return res.status(200).json({ success: true, ignored: true });
 
@@ -42,17 +60,38 @@ export default async function handler(req, res) {
   }
 
   const label = deriveInboundLabel(to);
-  const senderEmail = String(from).toLowerCase().match(/<([^>]+)>/)?.[1] || String(from).toLowerCase().trim();
+  const senderEmail =
+    String(from)
+      .toLowerCase()
+      .match(/<([^>]+)>/)?.[1] || String(from).toLowerCase().trim();
   const senderDomain = deriveSenderDomain(from);
   const { data: senderEntries } = await supabaseAdmin.from('sender_lists').select('value, list_type');
-  const allowedSender = (senderEntries || []).some((entry) => entry.list_type === 'allow' && (entry.value === senderEmail || entry.value === senderDomain));
-  const blockedSender = !allowedSender && (senderEntries || []).some((entry) => entry.list_type === 'block' && (entry.value === senderEmail || entry.value === senderDomain));
+  const allowedSender = (senderEntries || []).some(
+    (entry) => entry.list_type === 'allow' && (entry.value === senderEmail || entry.value === senderDomain),
+  );
+  const blockedSender =
+    !allowedSender &&
+    (senderEntries || []).some(
+      (entry) => entry.list_type === 'block' && (entry.value === senderEmail || entry.value === senderDomain),
+    );
   const { data: rules } = await supabaseAdmin.from('rules').select('*').eq('enabled', true).order('order_index');
-  const matchedRule = firstMatchingRule({ from, to, subject, hasAttachment: Array.isArray(attachments) && attachments.length > 0 }, rules || []);
-  const { data: mailboxSetting } = await supabaseAdmin.from('mailbox_settings').select('round_robin_enabled, next_user_id').eq('label', label).maybeSingle();
+  const matchedRule = firstMatchingRule(
+    { from, to, subject, hasAttachment: Array.isArray(attachments) && attachments.length > 0 },
+    rules || [],
+  );
+  const { data: mailboxSetting } = await supabaseAdmin
+    .from('mailbox_settings')
+    .select('round_robin_enabled, next_user_id')
+    .eq('label', label)
+    .maybeSingle();
   let assignedUser = matchedRule?.actions?.assign_to || null;
   if (!assignedUser && mailboxSetting?.round_robin_enabled) {
-    const { data: availableUsers } = await supabaseAdmin.from('users').select('id, email').eq('active', true).eq('availability', 'available').order('email');
+    const { data: availableUsers } = await supabaseAdmin
+      .from('users')
+      .select('id, email')
+      .eq('active', true)
+      .eq('availability', 'available')
+      .order('email');
     if (availableUsers?.length) {
       const currentIndex = availableUsers.findIndex((user) => user.id === mailboxSetting.next_user_id);
       const next = availableUsers[(currentIndex + 1) % availableUsers.length];
@@ -66,7 +105,11 @@ export default async function handler(req, res) {
   let threadId = randomUUID();
   let matchedHeader = false;
 
-  const referenceIds = [...new Set([...(Array.isArray(references) ? references : String(references || '').split(/\s+/)), inReplyTo].filter(Boolean))];
+  const referenceIds = [
+    ...new Set(
+      [...(Array.isArray(references) ? references : String(references || '').split(/\s+/)), inReplyTo].filter(Boolean),
+    ),
+  ];
   if (referenceIds.length) {
     const { data: parent } = await supabaseAdmin
       .from('emails')
@@ -92,15 +135,32 @@ export default async function handler(req, res) {
       .gte('received_at', cutoff)
       .order('received_at', { ascending: false })
       .limit(50);
-    const subjectMatch = (candidates || []).find((candidate) => normalizeSubject(candidate.subject) === normalizedSubject);
+    const subjectMatch = (candidates || []).find(
+      (candidate) => normalizeSubject(candidate.subject) === normalizedSubject,
+    );
     if (subjectMatch) threadId = subjectMatch.thread_id;
   }
 
-  const { data: priorInbound } = await supabaseAdmin.from('emails').select('id').eq('thread_id', threadId).eq('direction', 'inbound').limit(1);
-  const { data: contact } = await supabaseAdmin.from('contacts').upsert({ email: senderEmail, updated_at: new Date().toISOString() }, { onConflict: 'email' }).select('id').single();
+  const { data: priorInbound } = await supabaseAdmin
+    .from('emails')
+    .select('id')
+    .eq('thread_id', threadId)
+    .eq('direction', 'inbound')
+    .limit(1);
+  const { data: contact } = await supabaseAdmin
+    .from('contacts')
+    .upsert({ email: senderEmail, updated_at: new Date().toISOString() }, { onConflict: 'email' })
+    .select('id')
+    .single();
 
-  await supabaseAdmin.from('threads').upsert({ thread_id: threadId }, { onConflict: 'thread_id', ignoreDuplicates: true });
-  await supabaseAdmin.from('threads').update({ status: 'new', updated_at: new Date().toISOString() }).eq('thread_id', threadId).eq('status', 'closed');
+  await supabaseAdmin
+    .from('threads')
+    .upsert({ thread_id: threadId }, { onConflict: 'thread_id', ignoreDuplicates: true });
+  await supabaseAdmin
+    .from('threads')
+    .update({ status: 'new', updated_at: new Date().toISOString() })
+    .eq('thread_id', threadId)
+    .eq('status', 'closed');
 
   const storedAttachments = await storeInboundAttachments(threadId, attachments);
   if (storedAttachments.error) {
@@ -137,8 +197,21 @@ export default async function handler(req, res) {
   await notifyInboundEmail({ from, to, subject, text, threadId });
   await notifyOutboundWebhook({ from, to, subject, threadId });
 
-  if (assignedUser) await supabaseAdmin.from('threads').update({ claimed_by: String(assignedUser).slice(0, 320), updated_at: new Date().toISOString() }).eq('thread_id', threadId);
-  await maybeAutoReply({ from, to, subject, text, threadId, autoSubmitted, precedence, isFirstInbound: !(priorInbound || []).length });
+  if (assignedUser)
+    await supabaseAdmin
+      .from('threads')
+      .update({ claimed_by: String(assignedUser).slice(0, 320), updated_at: new Date().toISOString() })
+      .eq('thread_id', threadId);
+  await maybeAutoReply({
+    from,
+    to,
+    subject,
+    text,
+    threadId,
+    autoSubmitted,
+    precedence,
+    isFirstInbound: !(priorInbound || []).length,
+  });
 
   return res.status(200).json({ success: true });
 }
@@ -147,22 +220,48 @@ async function notifyOutboundWebhook(payload) {
   if (!process.env.OUTBOUND_WEBHOOK_URL) return;
   try {
     const body = JSON.stringify({ event: 'inbound.message', ...payload });
-    const signature = crypto.createHmac('sha256', process.env.OUTBOUND_WEBHOOK_SECRET || '').update(body).digest('hex');
-    await fetch(process.env.OUTBOUND_WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Agosoft-Signature': signature }, body });
+    const signature = crypto
+      .createHmac('sha256', process.env.OUTBOUND_WEBHOOK_SECRET || '')
+      .update(body)
+      .digest('hex');
+    await fetch(process.env.OUTBOUND_WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Agosoft-Signature': signature },
+      body,
+    });
   } catch (error) {
     console.error('Outbound webhook failed:', error);
   }
 }
 
 async function maybeAutoReply({ from, to, subject, text, threadId, autoSubmitted, precedence, isFirstInbound }) {
-  if (!isFirstInbound || /no[-_ ]?reply/i.test(from) || autoSubmitted || /bulk|list/i.test(String(precedence || ''))) return;
-  const { data: setting } = await supabaseAdmin.from('mailbox_settings').select('auto_reply_enabled, business_hours_reply, out_of_hours_reply').eq('label', deriveInboundLabel(to)).maybeSingle();
+  if (!isFirstInbound || /no[-_ ]?reply/i.test(from) || autoSubmitted || /bulk|list/i.test(String(precedence || '')))
+    return;
+  const { data: setting } = await supabaseAdmin
+    .from('mailbox_settings')
+    .select('auto_reply_enabled, business_hours_reply, out_of_hours_reply')
+    .eq('label', deriveInboundLabel(to))
+    .maybeSingle();
   if (!setting?.auto_reply_enabled) return;
-  const { data: recent } = await supabaseAdmin.from('emails').select('id').eq('direction', 'outbound').eq('to_address', from).gte('received_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()).limit(1);
+  const { data: recent } = await supabaseAdmin
+    .from('emails')
+    .select('id')
+    .eq('direction', 'outbound')
+    .eq('to_address', from)
+    .gte('received_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+    .limit(1);
   if (recent?.length) return;
-  const message = setting.business_hours_reply || 'Thanks for contacting us. We have received your message and will be in touch soon.';
+  const message =
+    setting.business_hours_reply ||
+    'Thanks for contacting us. We have received your message and will be in touch soon.';
   try {
-    await sendOutboundEmail({ threadId, to: [from], subject: `Re: ${String(subject || '(no subject)').slice(0, 900)}`, text: message, html: `<p>${escapeHtml(message)}</p>` });
+    await sendOutboundEmail({
+      threadId,
+      to: [from],
+      subject: `Re: ${String(subject || '(no subject)').slice(0, 900)}`,
+      text: message,
+      html: `<p>${escapeHtml(message)}</p>`,
+    });
   } catch (error) {
     console.error('Auto-reply failed:', error);
   }
@@ -214,7 +313,10 @@ async function notifyInboundEmail({ from, to, subject, text, threadId }) {
   }
 
   try {
-    const preview = String(text || '').trim().slice(0, 1000) || '(no message text)';
+    const preview =
+      String(text || '')
+        .trim()
+        .slice(0, 1000) || '(no message text)';
     const safeSubject = String(subject || '(no subject)').trim();
     const result = await resend.emails.send({
       from: sender,
@@ -242,10 +344,15 @@ function escapeHtml(value) {
 }
 
 function deriveInboundLabel(value) {
-  const address = String(value)
-    .toLowerCase()
-    .match(/<([^>]+)>/)?.[1] || String(value).split(/[;,]/)[0];
-  const localPart = address.trim().replace(/^mailto:/, '').split('@')[0].replace(/[^a-z0-9._+-]/g, '');
+  const address =
+    String(value)
+      .toLowerCase()
+      .match(/<([^>]+)>/)?.[1] || String(value).split(/[;,]/)[0];
+  const localPart = address
+    .trim()
+    .replace(/^mailto:/, '')
+    .split('@')[0]
+    .replace(/[^a-z0-9._+-]/g, '');
 
   if (localPart.includes('sales')) return 'sales';
   if (localPart.includes('support')) return 'support';
@@ -254,10 +361,22 @@ function deriveInboundLabel(value) {
 }
 
 function deriveSenderDomain(value) {
-  const address = String(value).toLowerCase().match(/<([^>]+)>/)?.[1] || String(value).split(/[;,]/)[0];
-  return address.trim().replace(/^mailto:/, '').split('@')[1]?.replace(/[^a-z0-9.-]/g, '') || null;
+  const address =
+    String(value)
+      .toLowerCase()
+      .match(/<([^>]+)>/)?.[1] || String(value).split(/[;,]/)[0];
+  return (
+    address
+      .trim()
+      .replace(/^mailto:/, '')
+      .split('@')[1]
+      ?.replace(/[^a-z0-9.-]/g, '') || null
+  );
 }
 
 function normalizeSubject(value) {
-  return String(value || '(no subject)').replace(/^(\s*(re|fw|fwd)\s*:\s*)+/i, '').trim().toLowerCase();
+  return String(value || '(no subject)')
+    .replace(/^(\s*(re|fw|fwd)\s*:\s*)+/i, '')
+    .trim()
+    .toLowerCase();
 }

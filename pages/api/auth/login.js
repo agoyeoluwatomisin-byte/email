@@ -14,12 +14,15 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const email = String(req.body?.email || '').trim().toLowerCase();
+  const email = String(req.body?.email || '')
+    .trim()
+    .toLowerCase();
   const password = String(req.body?.password || '');
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required.' });
 
   const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress || 'unknown';
-  if (await consumeRateLimit(`${ip}:${email}`, LOGIN_MAX_ATTEMPTS, LOGIN_WINDOW_MS)) return res.status(429).json({ error: 'Too many login attempts, slow down.' });
+  if (await consumeRateLimit(`${ip}:${email}`, LOGIN_MAX_ATTEMPTS, LOGIN_WINDOW_MS))
+    return res.status(429).json({ error: 'Too many login attempts, slow down.' });
 
   const { data: user, error } = await supabaseAdmin
     .from('users')
@@ -48,7 +51,14 @@ export default async function handler(req, res) {
   try {
     const sessionId = randomUUID();
     const sessionToken = createSessionToken({ ...user, sessionId });
-    const { error: sessionError } = await supabaseAdmin.from('user_sessions').insert({ id: sessionId, user_id: user.id, token_hash: hashSessionToken(sessionToken), user_agent: req.headers['user-agent']?.slice(0, 500), ip_address: ip, expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() });
+    const { error: sessionError } = await supabaseAdmin.from('user_sessions').insert({
+      id: sessionId,
+      user_id: user.id,
+      token_hash: hashSessionToken(sessionToken),
+      user_agent: req.headers['user-agent']?.slice(0, 500),
+      ip_address: ip,
+      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    });
     if (sessionError) throw sessionError;
     setSessionCookie(res, sessionToken);
   } catch (sessionError) {
@@ -70,9 +80,14 @@ function verifyTotp(secret, code) {
 
 function totp(secret, counter) {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-  let bits = ''; for (const char of String(secret).toUpperCase().replace(/=+$/, '')) bits += alphabet.indexOf(char).toString(2).padStart(5, '0');
-  const key = Buffer.alloc(Math.floor(bits.length / 8)); for (let i = 0; i < key.length; i += 1) key[i] = parseInt(bits.slice(i * 8, i * 8 + 8), 2);
-  const buffer = Buffer.alloc(8); buffer.writeBigUInt64BE(BigInt(counter));
-  const digest = createHmac('sha1', key).update(buffer).digest(); const offset = digest[digest.length - 1] & 15;
+  let bits = '';
+  for (const char of String(secret).toUpperCase().replace(/=+$/, ''))
+    bits += alphabet.indexOf(char).toString(2).padStart(5, '0');
+  const key = Buffer.alloc(Math.floor(bits.length / 8));
+  for (let i = 0; i < key.length; i += 1) key[i] = parseInt(bits.slice(i * 8, i * 8 + 8), 2);
+  const buffer = Buffer.alloc(8);
+  buffer.writeBigUInt64BE(BigInt(counter));
+  const digest = createHmac('sha1', key).update(buffer).digest();
+  const offset = digest[digest.length - 1] & 15;
   return String((digest.readUInt32BE(offset) & 0x7fffffff) % 1000000).padStart(6, '0');
 }

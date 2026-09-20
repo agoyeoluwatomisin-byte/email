@@ -1,0 +1,6 @@
+node_modules
+.next
+coverage
+public
+cloudflare-worker/node_modules
+package-lock.json

@@ -10,10 +10,19 @@ export default async function handler(req, res) {
     return res.status(200).json({ tags: data || [] });
   }
   if (req.method === 'POST') {
-    const name = String(req.body?.name || '').trim().slice(0, 60);
-    const color = String(req.body?.color || '#38bdf8').trim().slice(0, 20);
-    if (!name || !/^#[0-9a-f]{6}$/i.test(color)) return res.status(400).json({ error: 'Tag name and six-digit color are required.' });
-    const { data, error } = await supabaseAdmin.from('tags').upsert({ name, color }, { onConflict: 'name' }).select().single();
+    const name = String(req.body?.name || '')
+      .trim()
+      .slice(0, 60);
+    const color = String(req.body?.color || '#38bdf8')
+      .trim()
+      .slice(0, 20);
+    if (!name || !/^#[0-9a-f]{6}$/i.test(color))
+      return res.status(400).json({ error: 'Tag name and six-digit color are required.' });
+    const { data, error } = await supabaseAdmin
+      .from('tags')
+      .upsert({ name, color }, { onConflict: 'name' })
+      .select()
+      .single();
     if (error) return res.status(500).json({ error: 'Failed to save tag.' });
     return res.status(200).json({ tag: data });
   }

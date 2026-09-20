@@ -17,7 +17,10 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'DELETE' || action === 'delete') {
-    const { error } = await supabaseAdmin.from('emails').update({ folder: 'trash', deleted_at: new Date().toISOString() }).in('thread_id', threadIds);
+    const { error } = await supabaseAdmin
+      .from('emails')
+      .update({ folder: 'trash', deleted_at: new Date().toISOString() })
+      .in('thread_id', threadIds);
     if (error) {
       console.error('Failed to delete email threads:', error);
       return res.status(500).json({ error: 'Failed to delete email threads' });

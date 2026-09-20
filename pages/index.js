@@ -39,14 +39,25 @@ export default function Home() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    fetch('/api/drafts').then((response) => response.ok ? response.json() : { drafts: [] }).then((data) => {
-      const draft = data.drafts?.find((item) => item.kind === 'compose');
-      if (draft) {
-        setDraftId(draft.id);
-        setForm({ to: draft.to_address, cc: draft.cc, bcc: draft.bcc, subject: draft.subject, message: draft.text_body, html: draft.html_body, replyTo: draft.reply_to });
-        setAttachments(draft.attachments || []);
-      }
-    }).catch(() => {});
+    fetch('/api/drafts')
+      .then((response) => (response.ok ? response.json() : { drafts: [] }))
+      .then((data) => {
+        const draft = data.drafts?.find((item) => item.kind === 'compose');
+        if (draft) {
+          setDraftId(draft.id);
+          setForm({
+            to: draft.to_address,
+            cc: draft.cc,
+            bcc: draft.bcc,
+            subject: draft.subject,
+            message: draft.text_body,
+            html: draft.html_body,
+            replyTo: draft.reply_to,
+          });
+          setAttachments(draft.attachments || []);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -88,8 +99,8 @@ export default function Home() {
               });
             };
             reader.readAsDataURL(file);
-          })
-      )
+          }),
+      ),
     ).then(async (normalized) => {
       const response = await fetch('/api/attachments/upload', {
         method: 'POST',
@@ -106,7 +117,11 @@ export default function Home() {
   };
 
   const sendNow = async (payload) => {
-    const res = await fetch('/api/send-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const res = await fetch('/api/send-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Something went wrong');
     return data;
@@ -128,7 +143,11 @@ export default function Home() {
     if (scheduledAt) {
       setStatus({ state: 'loading', message: '' });
       try {
-        const response = await fetch('/api/scheduled', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scheduledAt: new Date(scheduledAt).toISOString(), payload }) });
+        const response = await fetch('/api/scheduled', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scheduledAt: new Date(scheduledAt).toISOString(), payload }),
+        });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Unable to schedule email.');
         setStatus({ state: 'success', message: 'Email scheduled.' });
@@ -161,7 +180,10 @@ export default function Home() {
         setStatus({ state: 'error', message: error.message });
       }
     }, 10000);
-    return () => { clearInterval(interval); clearTimeout(timeout); };
+    return () => {
+      clearInterval(interval);
+      clearTimeout(timeout);
+    };
   }, [undoPayload]);
 
   const handleUndo = () => {
@@ -172,7 +194,7 @@ export default function Home() {
 
   const missingSender = useMemo(
     () => !process.env.NEXT_PUBLIC_RESEND_FROM_ADDRESS && !process.env.RESEND_FROM_ADDRESS,
-    []
+    [],
   );
 
   return (
@@ -206,7 +228,22 @@ export default function Home() {
         {status.state === 'warning' && (
           <div style={styles.warningBox}>
             <strong>Review required:</strong> {status.message}
-            {undoPayload ? <button type="button" style={styles.warningAction} onClick={handleUndo}>Undo ({undoSeconds}s)</button> : <button type="button" style={styles.warningAction} onClick={() => { setConfirmRiskySend(true); setStatus({ state: 'idle', message: '' }); }}>Send anyway</button>}
+            {undoPayload ? (
+              <button type="button" style={styles.warningAction} onClick={handleUndo}>
+                Undo ({undoSeconds}s)
+              </button>
+            ) : (
+              <button
+                type="button"
+                style={styles.warningAction}
+                onClick={() => {
+                  setConfirmRiskySend(true);
+                  setStatus({ state: 'idle', message: '' });
+                }}
+              >
+                Send anyway
+              </button>
+            )}
           </div>
         )}
 
@@ -226,12 +263,26 @@ export default function Home() {
 
           <label style={styles.label}>
             CC (optional)
-            <input style={styles.input} type="text" name="cc" value={form.cc} onChange={handleChange} placeholder="cc@example.com" />
+            <input
+              style={styles.input}
+              type="text"
+              name="cc"
+              value={form.cc}
+              onChange={handleChange}
+              placeholder="cc@example.com"
+            />
           </label>
 
           <label style={styles.label}>
             BCC (optional)
-            <input style={styles.input} type="text" name="bcc" value={form.bcc} onChange={handleChange} placeholder="bcc@example.com" />
+            <input
+              style={styles.input}
+              type="text"
+              name="bcc"
+              value={form.bcc}
+              onChange={handleChange}
+              placeholder="bcc@example.com"
+            />
           </label>
 
           <label style={styles.label}>
@@ -249,7 +300,11 @@ export default function Home() {
 
           <label style={styles.label}>
             Message
-            <RichEditor value={form.html} placeholder="Write your message..." onChange={({ html, text }) => setForm((current) => ({ ...current, html, message: text }))} />
+            <RichEditor
+              value={form.html}
+              placeholder="Write your message..."
+              onChange={({ html, text }) => setForm((current) => ({ ...current, html, message: text }))}
+            />
           </label>
 
           <label style={styles.label}>
@@ -271,7 +326,8 @@ export default function Home() {
               <div style={styles.attachmentList}>
                 {attachments.map((file) => (
                   <span key={`${file.name}-${file.size}`} style={styles.attachmentItem}>
-                    {file.filename || file.name} · {formatBytes(file.size)} · {(file.content_type || file.contentType || 'file').split('/')[1] || 'file'}
+                    {file.filename || file.name} · {formatBytes(file.size)} ·{' '}
+                    {(file.content_type || file.contentType || 'file').split('/')[1] || 'file'}
                   </span>
                 ))}
               </div>
@@ -280,7 +336,13 @@ export default function Home() {
 
           <label style={styles.label}>
             Send later (optional)
-            <input style={styles.input} type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} min={new Date(Date.now() + 60000).toISOString().slice(0, 16)} />
+            <input
+              style={styles.input}
+              type="datetime-local"
+              value={scheduledAt}
+              onChange={(event) => setScheduledAt(event.target.value)}
+              min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}
+            />
           </label>
 
           <div className="compose-footer" style={styles.formFooter}>

@@ -61,7 +61,16 @@ export default function LoginPage() {
           <label className="label" style={styles.label} htmlFor="twoFactorCode">
             Authenticator code (if enabled)
           </label>
-          <input id="twoFactorCode" type="text" inputMode="numeric" value={twoFactorCode} onChange={(event) => setTwoFactorCode(event.target.value)} style={styles.input} autoComplete="one-time-code" maxLength={6} />
+          <input
+            id="twoFactorCode"
+            type="text"
+            inputMode="numeric"
+            value={twoFactorCode}
+            onChange={(event) => setTwoFactorCode(event.target.value)}
+            style={styles.input}
+            autoComplete="one-time-code"
+            maxLength={6}
+          />
 
           <label style={styles.label} htmlFor="password">
             Password

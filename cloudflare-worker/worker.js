@@ -26,9 +26,20 @@ export default {
         attachments: (parsed.attachments || []).map((attachment) => {
           const size = attachment.size || 0;
           if (size > 20 * 1024 * 1024) {
-            return { filename: attachment.filename || 'attachment', mimeType: attachment.mimeType || 'application/octet-stream', size, skipped: true, reason: 'over_20mb' };
+            return {
+              filename: attachment.filename || 'attachment',
+              mimeType: attachment.mimeType || 'application/octet-stream',
+              size,
+              skipped: true,
+              reason: 'over_20mb',
+            };
           }
-          return { filename: attachment.filename || 'attachment', mimeType: attachment.mimeType || 'application/octet-stream', size, content: toBase64(attachment.content) };
+          return {
+            filename: attachment.filename || 'attachment',
+            mimeType: attachment.mimeType || 'application/octet-stream',
+            size,
+            content: toBase64(attachment.content),
+          };
         }),
       };
 
@@ -87,9 +98,15 @@ function toBase64(value) {
 }
 
 function hasWidgetHeader(headers) {
-  return (headers || []).some((header) => String(header.key || header.name || '').toLowerCase() === 'x-agosoft-widget' && String(header.value || '').trim() === '1');
+  return (headers || []).some(
+    (header) =>
+      String(header.key || header.name || '').toLowerCase() === 'x-agosoft-widget' &&
+      String(header.value || '').trim() === '1',
+  );
 }
 
 function getHeader(headers, name) {
-  return (headers || []).find((header) => String(header.key || header.name || '').toLowerCase() === name)?.value || null;
+  return (
+    (headers || []).find((header) => String(header.key || header.name || '').toLowerCase() === name)?.value || null
+  );
 }

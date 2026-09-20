@@ -8,14 +8,27 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST' || req.method === 'PATCH') {
-    const title = String(req.body?.title || '').trim().slice(0, 160);
-    const body = String(req.body?.body || '').trim().slice(0, 10000);
-    const category = String(req.body?.category || 'General').trim().slice(0, 80) || 'General';
+    const title = String(req.body?.title || '')
+      .trim()
+      .slice(0, 160);
+    const body = String(req.body?.body || '')
+      .trim()
+      .slice(0, 10000);
+    const category =
+      String(req.body?.category || 'General')
+        .trim()
+        .slice(0, 80) || 'General';
     if (!title || !body) return res.status(400).json({ error: 'Title and body are required.' });
     const id = String(req.body?.id || '').slice(0, 80);
-    const query = req.method === 'POST'
-      ? supabaseAdmin.from('canned_responses').insert({ title, body, category }).select().single()
-      : supabaseAdmin.from('canned_responses').update({ title, body, category, updated_at: new Date().toISOString() }).eq('id', id).select().single();
+    const query =
+      req.method === 'POST'
+        ? supabaseAdmin.from('canned_responses').insert({ title, body, category }).select().single()
+        : supabaseAdmin
+            .from('canned_responses')
+            .update({ title, body, category, updated_at: new Date().toISOString() })
+            .eq('id', id)
+            .select()
+            .single();
     const { data, error } = await query;
     if (error) return res.status(500).json({ error: 'Failed to save canned response.' });
     return res.status(200).json({ response: data });

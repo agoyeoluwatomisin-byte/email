@@ -7,7 +7,12 @@ export default async function handler(req, res) {
 
   if (req.method === 'GET') {
     const threadId = req.query?.threadId ? String(req.query.threadId).slice(0, 80) : null;
-    let query = supabaseAdmin.from('email_drafts').select('*').eq('user_id', session.user.id).order('updated_at', { ascending: false }).limit(100);
+    let query = supabaseAdmin
+      .from('email_drafts')
+      .select('*')
+      .eq('user_id', session.user.id)
+      .order('updated_at', { ascending: false })
+      .limit(100);
     if (threadId) query = query.eq('thread_id', threadId);
     const { data, error } = await query;
     if (error) return res.status(500).json({ error: 'Failed to load drafts.' });
@@ -46,7 +51,13 @@ export default async function handler(req, res) {
   };
 
   const query = id
-    ? supabaseAdmin.from('email_drafts').update(fields).eq('id', id).eq('user_id', session.user.id).select().maybeSingle()
+    ? supabaseAdmin
+        .from('email_drafts')
+        .update(fields)
+        .eq('id', id)
+        .eq('user_id', session.user.id)
+        .select()
+        .maybeSingle()
     : supabaseAdmin.from('email_drafts').insert(fields).select().single();
   const { data, error } = await query;
   if (error) return res.status(500).json({ error: 'Failed to save draft.' });

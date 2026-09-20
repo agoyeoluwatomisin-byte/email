@@ -24,21 +24,26 @@ export default async function handler(req, res) {
     const content = String(file?.content || '');
     const buffer = Buffer.from(content, 'base64');
     total += buffer.length;
-    if (total > MAX_TOTAL_ATTACHMENT_SIZE) return res.status(400).json({ error: 'Total attachments cannot exceed 25 MB.' });
+    if (total > MAX_TOTAL_ATTACHMENT_SIZE)
+      return res.status(400).json({ error: 'Total attachments cannot exceed 25 MB.' });
     const validationError = validateAttachment(filename, contentType, buffer.length);
     if (validationError) return res.status(400).json({ error: validationError });
 
     const path = attachmentPath(session.user.id, filename);
     const { error } = await supabaseAdmin.storage.from(bucket).upload(path, buffer, { contentType, upsert: false });
     if (error) return res.status(502).json({ error: 'Failed to store attachment.' });
-    const { data: row, error: rowError } = await supabaseAdmin.from('stored_attachments').insert({
-      user_id: session.user.id,
-      bucket,
-      path,
-      filename,
-      content_type: contentType,
-      size: buffer.length,
-    }).select('id, bucket, path, filename, content_type, size').single();
+    const { data: row, error: rowError } = await supabaseAdmin
+      .from('stored_attachments')
+      .insert({
+        user_id: session.user.id,
+        bucket,
+        path,
+        filename,
+        content_type: contentType,
+        size: buffer.length,
+      })
+      .select('id, bucket, path, filename, content_type, size')
+      .single();
     if (rowError) return res.status(500).json({ error: 'Failed to record attachment.' });
     uploaded.push(row);
   }

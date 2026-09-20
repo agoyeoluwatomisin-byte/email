@@ -20,14 +20,19 @@ if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
 
 async function main() {
   const passwordHash = await bcrypt.hash(password, 12);
-  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
-  const { error } = await supabase.from('users').upsert({
-    email: email.trim().toLowerCase(),
-    password_hash: passwordHash,
-    display_name: displayName.trim(),
-    active: true,
-    updated_at: new Date().toISOString(),
-  }, { onConflict: 'email' });
+  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { persistSession: false },
+  });
+  const { error } = await supabase.from('users').upsert(
+    {
+      email: email.trim().toLowerCase(),
+      password_hash: passwordHash,
+      display_name: displayName.trim(),
+      active: true,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'email' },
+  );
 
   if (error) {
     console.error('Failed to create user:', error.message);

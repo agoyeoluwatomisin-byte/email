@@ -75,15 +75,25 @@ export default async function handler(req, res) {
 
         if (readError) return res.status(500).json({ error: 'Failed to read thread ownership' });
         if (current?.claimed_by && current.claimed_by !== claimedBy) {
-          return res.status(409).json({ error: `Thread is already claimed by ${current.claimed_by}`, claimedBy: current.claimed_by });
+          return res
+            .status(409)
+            .json({ error: `Thread is already claimed by ${current.claimed_by}`, claimedBy: current.claimed_by });
         }
 
-        const { error } = await supabaseAdmin.from('threads').update({ claimed_by: claimedBy, updated_at: new Date().toISOString() }).eq('thread_id', threadId).is('claimed_by', null);
+        const { error } = await supabaseAdmin
+          .from('threads')
+          .update({ claimed_by: claimedBy, updated_at: new Date().toISOString() })
+          .eq('thread_id', threadId)
+          .is('claimed_by', null);
         if (error) return res.status(500).json({ error: 'Failed to claim thread' });
         return res.status(200).json({ success: true, threadId, claimedBy });
       }
 
-      const { error } = await supabaseAdmin.from('threads').update({ claimed_by: null, updated_at: new Date().toISOString() }).eq('thread_id', threadId).eq('claimed_by', claimedBy);
+      const { error } = await supabaseAdmin
+        .from('threads')
+        .update({ claimed_by: null, updated_at: new Date().toISOString() })
+        .eq('thread_id', threadId)
+        .eq('claimed_by', claimedBy);
       if (error) return res.status(500).json({ error: 'Failed to release thread' });
       return res.status(200).json({ success: true, threadId, claimedBy: null });
     }
@@ -102,13 +112,32 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to update thread status' });
     }
 
-    if (status === 'closed' && process.env.CSAT_ENABLED === 'true' && process.env.RESEND_FROM_ADDRESS && process.env.RESEND_API_KEY) {
-      const { data: inbound } = await supabaseAdmin.from('emails').select('from_address, subject').eq('thread_id', threadId).eq('direction', 'inbound').order('received_at', { ascending: false }).limit(1).maybeSingle();
+    if (
+      status === 'closed' &&
+      process.env.CSAT_ENABLED === 'true' &&
+      process.env.RESEND_FROM_ADDRESS &&
+      process.env.RESEND_API_KEY
+    ) {
+      const { data: inbound } = await supabaseAdmin
+        .from('emails')
+        .select('from_address, subject')
+        .eq('thread_id', threadId)
+        .eq('direction', 'inbound')
+        .order('received_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
       if (inbound) {
         const token = createCsatToken(threadId, inbound.from_address);
         const baseUrl = process.env.APP_URL || `https://${req.headers.host}`;
-        const links = [1, 2, 3, 4, 5].map((rating) => `${baseUrl}/csat?token=${encodeURIComponent(token)}&rating=${rating}`).join('\n');
-        await new Resend(process.env.RESEND_API_KEY).emails.send({ from: process.env.RESEND_FROM_ADDRESS, to: [inbound.from_address], subject: 'How did we do?', text: `Please rate your support experience from 1 to 5:\n\n${links}` });
+        const links = [1, 2, 3, 4, 5]
+          .map((rating) => `${baseUrl}/csat?token=${encodeURIComponent(token)}&rating=${rating}`)
+          .join('\n');
+        await new Resend(process.env.RESEND_API_KEY).emails.send({
+          from: process.env.RESEND_FROM_ADDRESS,
+          to: [inbound.from_address],
+          subject: 'How did we do?',
+          text: `Please rate your support experience from 1 to 5:\n\n${links}`,
+        });
       }
     }
 

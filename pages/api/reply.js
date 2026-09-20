@@ -9,7 +9,8 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { threadId, to, cc, bcc, from, subject, message, html, attachments, inReplyToMessageId, references, action } = req.body || {};
+  const { threadId, to, cc, bcc, from, subject, message, html, attachments, inReplyToMessageId, references, action } =
+    req.body || {};
   const session = await requireSession(req, res);
   if (!session) return;
 
@@ -69,17 +70,39 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { data: signature } = await supabaseAdmin.from('user_signatures').select('signature_html, signature_text').eq('user_id', session.user.id).maybeSingle();
+    const { data: signature } = await supabaseAdmin
+      .from('user_signatures')
+      .select('signature_html, signature_text')
+      .eq('user_id', session.user.id)
+      .maybeSingle();
     const textBody = `${normalizedMessage}${action === 'forward' ? '' : signature?.signature_text ? `\n\n${signature.signature_text}` : ''}`;
-    const htmlBody = sanitizeEmailHtml(`${html || `<p>${escapeHtml(normalizedMessage).replace(/\n/g, '<br/>')}</p>`}${action === 'forward' ? '' : signature?.signature_html || ''}`);
+    const htmlBody = sanitizeEmailHtml(
+      `${html || `<p>${escapeHtml(normalizedMessage).replace(/\n/g, '<br/>')}</p>`}${action === 'forward' ? '' : signature?.signature_html || ''}`,
+    );
     const result = await sendOutboundEmail({
       userId: session.user.id,
       threadId,
-      to: Array.isArray(to) ? to : String(to).split(',').map((item) => item.trim()).filter(Boolean),
-      cc: Array.isArray(cc) ? cc : String(cc || '').split(',').map((item) => item.trim()).filter(Boolean),
-      bcc: Array.isArray(bcc) ? bcc : String(bcc || '').split(',').map((item) => item.trim()).filter(Boolean),
+      to: Array.isArray(to)
+        ? to
+        : String(to)
+            .split(',')
+            .map((item) => item.trim())
+            .filter(Boolean),
+      cc: Array.isArray(cc)
+        ? cc
+        : String(cc || '')
+            .split(',')
+            .map((item) => item.trim())
+            .filter(Boolean),
+      bcc: Array.isArray(bcc)
+        ? bcc
+        : String(bcc || '')
+            .split(',')
+            .map((item) => item.trim())
+            .filter(Boolean),
       replyTo: fromAddress,
-      subject: normalizedSubject.startsWith('Re:') || action === 'forward' ? normalizedSubject : `Re: ${normalizedSubject}`,
+      subject:
+        normalizedSubject.startsWith('Re:') || action === 'forward' ? normalizedSubject : `Re: ${normalizedSubject}`,
       text: textBody,
       html: htmlBody,
       attachments,

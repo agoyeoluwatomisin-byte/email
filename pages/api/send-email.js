@@ -19,10 +19,7 @@ export default async function handler(req, res) {
   const session = await requireSession(req, res);
   if (!session) return;
 
-  const ip =
-    req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
-    req.socket?.remoteAddress ||
-    'unknown';
+  const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress || 'unknown';
 
   if (await consumeRateLimit(ip, MAX_PER_WINDOW, WINDOW_MS)) {
     return res.status(429).json({ error: 'Too many requests, slow down.' });
@@ -87,9 +84,15 @@ export default async function handler(req, res) {
     return res.status(403).json({ error: 'One or more recipients are not allowed' });
   }
 
-  const { data: signature } = await supabaseAdmin.from('user_signatures').select('signature_html, signature_text').eq('user_id', session.user.id).maybeSingle();
+  const { data: signature } = await supabaseAdmin
+    .from('user_signatures')
+    .select('signature_html, signature_text')
+    .eq('user_id', session.user.id)
+    .maybeSingle();
   const textBody = `${normalizedMessage || '(empty message)'}${signature?.signature_text ? `\n\n${signature.signature_text}` : ''}`;
-  const htmlBody = sanitizeEmailHtml(`<p>${escapeHtml(normalizedMessage).replace(/\n/g, '<br/>')}</p>${signature?.signature_html || ''}`);
+  const htmlBody = sanitizeEmailHtml(
+    `<p>${escapeHtml(normalizedMessage).replace(/\n/g, '<br/>')}</p>${signature?.signature_html || ''}`,
+  );
 
   try {
     const result = await sendOutboundEmail({
@@ -103,7 +106,9 @@ export default async function handler(req, res) {
       html: htmlBody,
       attachments,
     });
-    return res.status(200).json({ success: true, id: result.id, messageId: result.messageId, threadId: result.threadId });
+    return res
+      .status(200)
+      .json({ success: true, id: result.id, messageId: result.messageId, threadId: result.threadId });
   } catch (err) {
     console.error('send-email error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });

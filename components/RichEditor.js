@@ -22,10 +22,42 @@ export default function RichEditor({ value, onChange, placeholder, minHeight = 1
   return (
     <div className="mail-editor">
       <div className="mail-editor-toolbar">
-        <button type="button" className="mail-icon-button" onMouseDown={(event) => event.preventDefault()} onClick={() => command('bold')} aria-label="Bold"><strong>B</strong></button>
-        <button type="button" className="mail-icon-button" onMouseDown={(event) => event.preventDefault()} onClick={() => command('italic')} aria-label="Italic"><em>I</em></button>
-        <button type="button" className="mail-icon-button" onMouseDown={(event) => event.preventDefault()} onClick={() => command('insertUnorderedList')} aria-label="Bulleted list">•</button>
-        <button type="button" className="mail-button" onMouseDown={(event) => event.preventDefault()} onClick={() => command('createLink', window.prompt('Link URL', 'https://'))} aria-label="Insert link">Link</button>
+        <button
+          type="button"
+          className="mail-icon-button"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => command('bold')}
+          aria-label="Bold"
+        >
+          <strong>B</strong>
+        </button>
+        <button
+          type="button"
+          className="mail-icon-button"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => command('italic')}
+          aria-label="Italic"
+        >
+          <em>I</em>
+        </button>
+        <button
+          type="button"
+          className="mail-icon-button"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => command('insertUnorderedList')}
+          aria-label="Bulleted list"
+        >
+          •
+        </button>
+        <button
+          type="button"
+          className="mail-button"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => command('createLink', window.prompt('Link URL', 'https://'))}
+          aria-label="Insert link"
+        >
+          Link
+        </button>
       </div>
       <div
         ref={editorRef}
@@ -42,4 +74,3 @@ export default function RichEditor({ value, onChange, placeholder, minHeight = 1
     </div>
   );
 }
-

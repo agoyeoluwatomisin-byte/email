@@ -2,12 +2,17 @@ import Link from 'next/link';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
+import { AppSessionProvider, useAppSession } from '../context/AppSessionProvider';
+import ToastProvider from '../components/ui/Toast';
 import '../styles/globals.css';
 
 export default function App({ Component, pageProps }) {
+  return <AppSessionProvider><ToastProvider><AppContent Component={Component} pageProps={pageProps} /></ToastProvider></AppSessionProvider>;
+}
+
+function AppContent({ Component, pageProps }) {
   const router = useRouter();
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isReady, setIsReady] = useState(false);
+  const { user, role, displayName, isAuthenticated, isReady } = useAppSession();
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
@@ -17,31 +22,24 @@ export default function App({ Component, pageProps }) {
     if (typeof window === 'undefined') return;
 
     const savedTheme = localStorage.getItem('email_theme');
-    const preferredMode = savedTheme ? savedTheme === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const preferredMode = savedTheme
+      ? savedTheme === 'dark'
+      : window.matchMedia('(prefers-color-scheme: dark)').matches;
     setIsDarkMode(preferredMode);
 
+    if (!isReady) return;
     const isLoginPage = router.pathname === '/login';
-
-    fetch('/api/auth/session')
-      .then((response) => (response.ok ? response.json() : { authenticated: false }))
-      .then((session) => {
-        const isLoggedIn = Boolean(session.authenticated);
-        setIsAuthenticated(isLoggedIn);
-        setIsReady(true);
-
-        if (!isLoggedIn && !isLoginPage) router.replace('/login');
-        if (isLoggedIn && isLoginPage) router.replace('/dashboard');
-      })
-      .catch(() => {
-        setIsAuthenticated(false);
-        setIsReady(true);
-        if (!isLoginPage) router.replace('/login');
-      });
-  }, [router.pathname]);
+    if (!isAuthenticated && !isLoginPage) router.replace('/login');
+    if (isAuthenticated && isLoginPage) router.replace('/dashboard');
+  }, [isAuthenticated, isReady, router]);
 
   useEffect(() => {
     if (!isAuthenticated) return undefined;
-    const loadNotifications = () => fetch('/api/notifications').then((response) => response.ok ? response.json() : { unread: 0 }).then((data) => setUnreadNotifications(data.unread || 0)).catch(() => {});
+    const loadNotifications = () =>
+      fetch('/api/notifications')
+        .then((response) => (response.ok ? response.json() : { unread: 0 }))
+        .then((data) => setUnreadNotifications(data.unread || 0))
+        .catch(() => {});
     loadNotifications();
     const timer = setInterval(loadNotifications, 15000);
     return () => clearInterval(timer);
@@ -49,7 +47,10 @@ export default function App({ Component, pageProps }) {
 
   useEffect(() => {
     const handleCommand = (event) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); setIsCommandPaletteOpen((open) => !open); }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setIsCommandPaletteOpen((open) => !open);
+      }
     };
     window.addEventListener('keydown', handleCommand);
     return () => window.removeEventListener('keydown', handleCommand);
@@ -137,7 +138,9 @@ export default function App({ Component, pageProps }) {
           data-mobile-menu-open={isMobileMenuOpen ? 'true' : 'false'}
           aria-label="Main navigation"
         >
-          <div className="app-nav-brand" style={{ ...styles.brand, color: theme.navText }}>Email</div>
+          <div className="app-nav-brand" style={{ ...styles.brand, color: theme.navText }}>
+            Email
+          </div>
 
           <button
             type="button"
@@ -185,10 +188,27 @@ export default function App({ Component, pageProps }) {
             >
               {isDarkMode ? 'Light mode' : 'Dark mode'}
             </button>
-            <button type="button" onClick={handleLogout} style={{ ...styles.themeToggle, background: theme.toggleBackground, color: theme.toggleText }}>
+            <button
+              type="button"
+              onClick={handleLogout}
+              style={{ ...styles.themeToggle, background: theme.toggleBackground, color: theme.toggleText }}
+            >
               Logout
             </button>
-            <button type="button" onClick={() => { if (typeof Notification !== 'undefined' && Notification.permission === 'default') Notification.requestPermission(); fetch('/api/notifications', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }).then(() => setUnreadNotifications(0)); }} style={{ ...styles.themeToggle, background: theme.toggleBackground, color: theme.toggleText }} aria-label="Mark notifications read">
+            <button
+              type="button"
+              onClick={() => {
+                if (typeof Notification !== 'undefined' && Notification.permission === 'default')
+                  Notification.requestPermission();
+                fetch('/api/notifications', {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({}),
+                }).then(() => setUnreadNotifications(0));
+              }}
+              style={{ ...styles.themeToggle, background: theme.toggleBackground, color: theme.toggleText }}
+              aria-label="Mark notifications read"
+            >
               Bell{unreadNotifications ? ` (${unreadNotifications})` : ''}
             </button>
           </div>
@@ -198,7 +218,26 @@ export default function App({ Component, pageProps }) {
       <div className="page-shell" style={{ ...styles.pageShell, background: theme.pageBackground }}>
         <Component {...pageProps} />
       </div>
-      {isCommandPaletteOpen && <div style={styles.paletteBackdrop} onClick={() => setIsCommandPaletteOpen(false)}><div style={styles.palette} onClick={(event) => event.stopPropagation()}><strong>Command palette</strong>{navItems.map((item) => <button key={item.href} type="button" style={styles.paletteItem} onClick={() => { setIsCommandPaletteOpen(false); router.push(item.href); }}>{item.label}</button>)}</div></div>}
+      {isCommandPaletteOpen && (
+        <div style={styles.paletteBackdrop} onClick={() => setIsCommandPaletteOpen(false)}>
+          <div style={styles.palette} onClick={(event) => event.stopPropagation()}>
+            <strong>Command palette</strong>
+            {navItems.map((item) => (
+              <button
+                key={item.href}
+                type="button"
+                style={styles.paletteItem}
+                onClick={() => {
+                  setIsCommandPaletteOpen(false);
+                  router.push(item.href);
+                }}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -250,9 +289,36 @@ const styles = {
     fontWeight: 700,
     cursor: 'pointer',
   },
-  paletteBackdrop: { position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(2, 6, 23, 0.65)', display: 'grid', placeItems: 'start center', paddingTop: 100 },
-  palette: { width: 'min(92vw, 420px)', background: '#102033', border: '1px solid #36536e', borderRadius: 10, padding: 16, display: 'flex', flexDirection: 'column', gap: 8, color: '#e5eef8', boxShadow: '0 20px 60px rgba(0,0,0,0.35)' },
-  paletteItem: { textAlign: 'left', border: '1px solid #29415b', background: '#0d1a2a', color: '#d7e5f2', borderRadius: 6, padding: 9, cursor: 'pointer' },
+  paletteBackdrop: {
+    position: 'fixed',
+    inset: 0,
+    zIndex: 50,
+    background: 'rgba(2, 6, 23, 0.65)',
+    display: 'grid',
+    placeItems: 'start center',
+    paddingTop: 100,
+  },
+  palette: {
+    width: 'min(92vw, 420px)',
+    background: '#102033',
+    border: '1px solid #36536e',
+    borderRadius: 10,
+    padding: 16,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8,
+    color: '#e5eef8',
+    boxShadow: '0 20px 60px rgba(0,0,0,0.35)',
+  },
+  paletteItem: {
+    textAlign: 'left',
+    border: '1px solid #29415b',
+    background: '#0d1a2a',
+    color: '#d7e5f2',
+    borderRadius: 6,
+    padding: 9,
+    cursor: 'pointer',
+  },
   mobileMenuToggle: {
     display: 'none',
     border: 'none',

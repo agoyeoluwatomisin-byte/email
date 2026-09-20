@@ -15,11 +15,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'A valid message and attachment index are required' });
   }
 
-  const { data: email, error } = await supabaseAdmin
-    .from('emails')
-    .select('attachments')
-    .eq('id', id)
-    .maybeSingle();
+  const { data: email, error } = await supabaseAdmin.from('emails').select('attachments').eq('id', id).maybeSingle();
 
   if (error) {
     console.error('Failed to load attachment:', error);
@@ -58,7 +54,10 @@ export default async function handler(req, res) {
   res.setHeader('Content-Length', content.length);
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Content-Security-Policy', 'sandbox');
-  res.setHeader('Content-Disposition', `${disposition}; filename="${safeFilename(filename)}"; filename*=UTF-8''${encodedFilename}`);
+  res.setHeader(
+    'Content-Disposition',
+    `${disposition}; filename="${safeFilename(filename)}"; filename*=UTF-8''${encodedFilename}`,
+  );
   return res.status(200).send(content);
 }
 

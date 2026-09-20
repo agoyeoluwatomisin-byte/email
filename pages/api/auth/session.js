@@ -8,5 +8,13 @@ export default async function handler(req, res) {
 
   const session = await requireSession(req, res);
   if (!session) return res.status(401).json({ authenticated: false });
-  return res.status(200).json({ authenticated: true, user: { id: session.user.id, email: session.user.email, displayName: session.user.display_name, role: session.user.role } });
+  return res.status(200).json({
+    authenticated: true,
+    user: {
+      id: session.user.id,
+      email: session.user.email,
+      displayName: session.user.display_name,
+      role: session.user.role,
+    },
+  });
 }

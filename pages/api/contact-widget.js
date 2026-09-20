@@ -16,7 +16,9 @@ export default async function handler(req, res) {
     .map((value) => value.trim())
     .filter(Boolean);
   const widgetKey = String(req.query?.key || req.headers['x-widget-key'] || '').slice(0, 100);
-  const { data: widget } = widgetKey ? await supabaseAdmin.from('widgets').select('*').eq('widget_key', widgetKey).eq('enabled', true).maybeSingle() : { data: null };
+  const { data: widget } = widgetKey
+    ? await supabaseAdmin.from('widgets').select('*').eq('widget_key', widgetKey).eq('enabled', true).maybeSingle()
+    : { data: null };
   const configuredOrigins = widget?.allowed_origins || allowedOrigins;
 
   if (req.method === 'OPTIONS') {
@@ -42,10 +44,18 @@ export default async function handler(req, res) {
   const { name, email, subject, message, website, turnstileToken, attachment } = req.body || {};
   if (website) return res.status(200).json({ success: true });
 
-  const visitorEmail = String(email || '').trim().toLowerCase();
-  const visitorName = String(name || '').trim().slice(0, 120);
-  const visitorMessage = String(message || '').trim().slice(0, 5000);
-  const cleanSubject = String(subject || 'Website contact').trim().slice(0, 180);
+  const visitorEmail = String(email || '')
+    .trim()
+    .toLowerCase();
+  const visitorName = String(name || '')
+    .trim()
+    .slice(0, 120);
+  const visitorMessage = String(message || '')
+    .trim()
+    .slice(0, 5000);
+  const cleanSubject = String(subject || 'Website contact')
+    .trim()
+    .slice(0, 180);
   const destination = widget?.destination_email || process.env.CONTACT_WIDGET_TO_EMAIL;
 
   if (!destination || !process.env.RESEND_FROM_ADDRESS || !process.env.RESEND_API_KEY) {
@@ -57,7 +67,15 @@ export default async function handler(req, res) {
   }
 
   if (process.env.TURNSTILE_SECRET_KEY) {
-    const verification = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ secret: process.env.TURNSTILE_SECRET_KEY, response: String(turnstileToken || ''), remoteip: ip }) });
+    const verification = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        secret: process.env.TURNSTILE_SECRET_KEY,
+        response: String(turnstileToken || ''),
+        remoteip: ip,
+      }),
+    });
     const result = await verification.json();
     if (!result.success) return res.status(403).json({ error: 'Human verification failed.' });
   }
@@ -86,7 +104,9 @@ export default async function handler(req, res) {
   const htmlBody = `<p><strong>Name:</strong> ${escapeHtml(visitorName)}<br/><strong>Email:</strong> ${escapeHtml(visitorEmail)}</p><p>${escapeHtml(visitorMessage).replace(/\n/g, '<br/>')}</p>`;
 
   try {
-    const senderEmail = (process.env.RESEND_FROM_ADDRESS.match(/<(.+)>/)?.[1] || process.env.RESEND_FROM_ADDRESS).trim();
+    const senderEmail = (
+      process.env.RESEND_FROM_ADDRESS.match(/<(.+)>/)?.[1] || process.env.RESEND_FROM_ADDRESS
+    ).trim();
     const widgetMessageId = `<${randomUUID()}@${senderEmail.split('@')[1] || 'localhost'}>`;
     const { data, error } = await resend.emails.send({
       from: process.env.RESEND_FROM_ADDRESS,
@@ -96,12 +116,24 @@ export default async function handler(req, res) {
       text: textBody,
       html: htmlBody,
       headers: { 'X-Agosoft-Widget': '1', 'X-Entity-Ref-ID': `widget-${Date.now()}` },
-      ...(storedAttachment ? { attachments: [{ filename: storedAttachment.filename, content: Buffer.from(String(attachment.content), 'base64'), contentType: storedAttachment.mimeType }] } : {}),
+      ...(storedAttachment
+        ? {
+            attachments: [
+              {
+                filename: storedAttachment.filename,
+                content: Buffer.from(String(attachment.content), 'base64'),
+                contentType: storedAttachment.mimeType,
+              },
+            ],
+          }
+        : {}),
     });
 
     if (error) return res.status(502).json({ error: error.message || 'Failed to send contact message.' });
 
-    await supabaseAdmin.from('threads').upsert({ thread_id: threadId }, { onConflict: 'thread_id', ignoreDuplicates: true });
+    await supabaseAdmin
+      .from('threads')
+      .upsert({ thread_id: threadId }, { onConflict: 'thread_id', ignoreDuplicates: true });
     // inbound.js ignores the notification if Cloudflare routes it back with X-Agosoft-Widget.
     const { error: storeError } = await supabaseAdmin.from('emails').insert({
       thread_id: threadId,
@@ -127,7 +159,11 @@ export default async function handler(req, res) {
 }
 
 function isAllowedOrigin(origin, allowedOrigins) {
-  return Boolean(origin) && (allowedOrigins.includes(origin) || (allowedOrigins.includes('*') && process.env.CONTACT_WIDGET_ALLOW_ANY_ORIGIN === 'true'));
+  return (
+    Boolean(origin) &&
+    (allowedOrigins.includes(origin) ||
+      (allowedOrigins.includes('*') && process.env.CONTACT_WIDGET_ALLOW_ANY_ORIGIN === 'true'))
+  );
 }
 
 function setCorsHeaders(res, origin, allowedOrigins) {
