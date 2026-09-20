@@ -20,7 +20,7 @@ export default function Settings() {
   const section = typeof router.query.section === 'string' ? router.query.section : 'profile';
   const visibleSections = role === 'admin' ? sections : sections.filter(([value]) => value !== 'admin');
   const activeSection = visibleSections.some(([value]) => value === section) ? section : 'profile';
-  const setSection = (value) => router.push({ pathname: '/settings', query: { section: value } }, undefined, { shallow: true });
+  const setSection = (value) => router.push(`/settings/${value}`, undefined, { shallow: true });
 
   return (
     <div className="content-page settings-page">

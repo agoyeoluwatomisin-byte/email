@@ -542,6 +542,10 @@ body[data-theme='dark'] {
 .ui-input { width: 100%; padding: 10px 12px; border: 1px solid var(--app-border); border-radius: var(--app-radius-sm); background: var(--app-surface-raised); color: var(--app-text); }
 .ui-input:focus, .ui-button:focus-visible, .contact-list-row:focus-visible, .contact-history-row:focus-visible { outline: 3px solid color-mix(in srgb, var(--app-accent) 35%, transparent); outline-offset: 2px; }
 .ui-button { display: inline-flex; align-items: center; justify-content: center; min-height: 38px; padding: 8px 13px; border: 1px solid transparent; border-radius: var(--app-radius-sm); font-weight: 700; text-decoration: none; cursor: pointer; }
+.ui-button:focus-visible, .ui-input:focus-visible, .ui-toggle input:focus-visible + .ui-toggle-track, .ui-tabs button:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--app-accent) 35%, transparent);
+  outline-offset: 2px;
+}
 .ui-button-primary { background: var(--app-accent); color: #fff; }
 .ui-button-secondary { border-color: var(--app-border); background: var(--app-surface); color: var(--app-text); }
 .ui-button-ghost { background: transparent; color: var(--app-accent); }
@@ -560,6 +564,9 @@ body[data-theme='dark'] {
 .ui-toggle-track span { width: 16px; height: 16px; border-radius: 50%; background: var(--app-surface); transition: transform 0.15s ease; }
 .ui-toggle input:checked + .ui-toggle-track { background: var(--app-accent); }
 .ui-toggle input:checked + .ui-toggle-track span { transform: translateX(14px); }
+.ui-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+.ui-tab { min-height: 36px; padding: 8px 12px; border: 1px solid var(--app-border); border-radius: 999px; background: transparent; color: var(--app-muted); cursor: pointer; }
+.ui-tab[aria-selected='true'] { background: var(--app-accent-soft); border-color: transparent; color: var(--app-accent); }
 .ui-error { padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--app-danger) 45%, transparent); border-radius: var(--app-radius-sm); color: var(--app-danger); }
 .ui-muted { color: var(--app-muted); }
 .contacts-layout { display: grid; grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); gap: 16px; align-items: start; }
