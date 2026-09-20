@@ -3,6 +3,10 @@ import PostalMime from 'postal-mime';
 export default {
   async email(message, env, ctx) {
     try {
+      if (!env.INBOUND_WEBHOOK_URL || !env.INBOUND_SHARED_SECRET) {
+        console.error('Missing INBOUND_WEBHOOK_URL or INBOUND_SHARED_SECRET worker secret.');
+        return;
+      }
       const buffer = await streamToArrayBuffer(message.raw, message.rawSize);
       const parsed = await PostalMime.parse(buffer);
 
@@ -15,25 +19,21 @@ export default {
         subject: parsed.subject || '(no subject)',
         text: parsed.text || '',
         html: parsed.html || '',
-        attachments: (parsed.attachments || []).map((attachment) => ({
-          filename: attachment.filename || 'attachment',
-          mimeType: attachment.mimeType || 'application/octet-stream',
-          size: attachment.size || 0,
-          content: toBase64(attachment.content),
-        })),
+        xWidget: hasWidgetHeader(parsed.headers),
+        attachments: (parsed.attachments || []).map((attachment) => {
+          const size = attachment.size || 0;
+          if (size > 20 * 1024 * 1024) {
+            return { filename: attachment.filename || 'attachment', mimeType: attachment.mimeType || 'application/octet-stream', size, skipped: true, reason: 'over_20mb' };
+          }
+          return { filename: attachment.filename || 'attachment', mimeType: attachment.mimeType || 'application/octet-stream', size, content: toBase64(attachment.content) };
+        }),
       };
 
-      const res = await fetch(env.inbound_webhook_url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-inbound-secret': env.inbound_shared_secret,
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) {
-        console.error('Webhook rejected inbound email:', res.status, await res.text());
+      const delivered = await deliverWithRetry(env.INBOUND_WEBHOOK_URL, env.INBOUND_SHARED_SECRET, payload);
+      if (!delivered) {
+        console.error('Inbound webhook failed after 3 attempts.');
+        const fallbackAddress = env.fallback_forward_address || env.FALLBACK_FORWARD_ADDRESS;
+        if (fallbackAddress) await message.forward(fallbackAddress);
       }
     } catch (err) {
       console.error('Failed to process inbound email:', err);
@@ -55,12 +55,34 @@ async function streamToArrayBuffer(stream, size) {
   return buffer.buffer;
 }
 
+async function deliverWithRetry(url, secret, payload) {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-inbound-secret': secret },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) return true;
+      console.error(`Inbound webhook attempt ${attempt} failed:`, res.status, await res.text());
+    } catch (error) {
+      console.error(`Inbound webhook attempt ${attempt} failed:`, error);
+    }
+    if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+  }
+  return false;
+}
+
 function toBase64(value) {
   if (!value) return '';
   const bytes = value instanceof ArrayBuffer ? new Uint8Array(value) : value;
   let binary = '';
-  for (let index = 0; index < bytes.length; index += 1) {
-    binary += String.fromCharCode(bytes[index]);
+  for (let index = 0; index < bytes.length; index += 32 * 1024) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(index, index + 32 * 1024));
   }
   return btoa(binary);
+}
+
+function hasWidgetHeader(headers) {
+  return (headers || []).some((header) => String(header.key || header.name || '').toLowerCase() === 'x-agosoft-widget' && String(header.value || '').trim() === '1');
 }

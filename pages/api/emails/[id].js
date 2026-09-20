@@ -1,10 +1,13 @@
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
+import { requireSession } from '../../../lib/auth';
 
 export default async function handler(req, res) {
   if (!['DELETE', 'PATCH'].includes(req.method)) {
     res.setHeader('Allow', ['DELETE', 'PATCH']);
     return res.status(405).json({ error: 'Method not allowed' });
   }
+
+  if (!(await requireSession(req, res))) return;
 
   const { id } = req.query || {};
   if (!id) {

@@ -1,5 +1,5 @@
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
-import { getSessionFromRequest } from '../../../../lib/auth';
+import { requireSession } from '../../../../lib/auth';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -7,9 +7,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  if (!getSessionFromRequest(req)) {
-    return res.status(401).json({ error: 'Authentication required' });
-  }
+  if (!(await requireSession(req, res))) return;
 
   const threadId = String(req.query?.id || '');
   if (!threadId) return res.status(400).json({ error: 'Thread id is required' });

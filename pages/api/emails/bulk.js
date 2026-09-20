@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
+import { requireSession } from '../../../lib/auth';
 
 const folders = ['inbox', 'archive', 'spam', 'drafts', 'sent'];
 
@@ -7,6 +8,8 @@ export default async function handler(req, res) {
     res.setHeader('Allow', ['PATCH', 'DELETE']);
     return res.status(405).json({ error: 'Method not allowed' });
   }
+
+  if (!(await requireSession(req, res))) return;
 
   const { threadIds, action } = req.body || {};
   if (!Array.isArray(threadIds) || threadIds.length === 0) {

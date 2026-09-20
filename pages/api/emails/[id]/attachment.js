@@ -1,10 +1,13 @@
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
+import { requireSession } from '../../../../lib/auth';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     res.setHeader('Allow', ['GET']);
     return res.status(405).json({ error: 'Method not allowed' });
   }
+
+  if (!(await requireSession(req, res))) return;
 
   const { id, index = '0' } = req.query || {};
   const attachmentIndex = Number(index);
@@ -45,9 +48,17 @@ export default async function handler(req, res) {
     return res.status(404).json({ error: 'Attachment content is unavailable' });
   }
 
-  res.setHeader('Content-Type', attachment.mimeType || attachment.contentType || 'application/octet-stream');
+  const contentType = String(attachment.mimeType || attachment.contentType || 'application/octet-stream').toLowerCase();
+  const inlineTypes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf']);
+  const disposition = req.query.download === '1' || !inlineTypes.has(contentType) ? 'attachment' : 'inline';
+  const filename = String(attachment.filename || attachment.name || 'attachment').replace(/[\r\n]/g, '_');
+  const encodedFilename = encodeURIComponent(filename).replace(/['()]/g, escape);
+
+  res.setHeader('Content-Type', contentType);
   res.setHeader('Content-Length', content.length);
-  res.setHeader('Content-Disposition', `${req.query.download === '1' ? 'attachment' : 'inline'}; filename="${safeFilename(attachment.filename || attachment.name || 'attachment')}"`);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Content-Security-Policy', 'sandbox');
+  res.setHeader('Content-Disposition', `${disposition}; filename="${safeFilename(filename)}"; filename*=UTF-8''${encodedFilename}`);
   return res.status(200).send(content);
 }
 

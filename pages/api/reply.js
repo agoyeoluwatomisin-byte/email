@@ -1,6 +1,7 @@
 import { Resend } from 'resend';
+import { randomUUID } from 'crypto';
 import { supabaseAdmin } from '../../lib/supabaseAdmin';
-import { getSessionFromRequest } from '../../lib/auth';
+import { requireSession } from '../../lib/auth';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -11,14 +12,11 @@ export default async function handler(req, res) {
   }
 
   const { threadId, to, from, subject, message, inReplyToMessageId } = req.body || {};
-  const session = getSessionFromRequest(req);
+  const session = await requireSession(req, res);
+  if (!session) return;
 
   if (!threadId || !to || !subject || !message) {
     return res.status(400).json({ error: 'threadId, to, subject, and message are required' });
-  }
-
-  if (!session) {
-    return res.status(401).json({ error: 'Authentication required.' });
   }
 
   const claimedBy = session.email;
@@ -27,10 +25,9 @@ export default async function handler(req, res) {
   }
 
   const { data: threadOwner, error: ownerError } = await supabaseAdmin
-    .from('emails')
+    .from('threads')
     .select('claimed_by')
     .eq('thread_id', threadId)
-    .limit(1)
     .maybeSingle();
 
   if (ownerError) return res.status(500).json({ error: 'Unable to verify thread ownership.' });
@@ -38,10 +35,14 @@ export default async function handler(req, res) {
     return res.status(409).json({ error: 'This thread is claimed by another staff member.' });
   }
 
+  const defaultFrom = process.env.RESEND_FROM_ADDRESS;
+  if (!defaultFrom) {
+    return res.status(500).json({ error: 'RESEND_FROM_ADDRESS is not configured.' });
+  }
+
   // Resolve which address to reply FROM. If the caller supplied one (e.g. the
   // address the original email was sent to), use it - but only if it's on
   // our verified sending domain. Otherwise fall back to the default address.
-  const defaultFrom = process.env.RESEND_FROM_ADDRESS;
   const defaultFromEmail = (defaultFrom.match(/<(.+)>/)?.[1] || defaultFrom).trim();
   const verifiedDomain = defaultFromEmail.split('@')[1]?.toLowerCase();
 
@@ -70,6 +71,7 @@ export default async function handler(req, res) {
   }
 
   try {
+    const messageId = `<${randomUUID()}@${defaultFromEmail.split('@')[1] || 'localhost'}>`;
     const { data, error } = await resend.emails.send({
       from: fromAddress,
       to: [to],
@@ -78,7 +80,7 @@ export default async function handler(req, res) {
       html: `<p>${escapeHtml(normalizedMessage).replace(/\n/g, '<br/>')}</p>`,
       headers: {
         ...(inReplyToMessageId ? { 'In-Reply-To': inReplyToMessageId, References: inReplyToMessageId } : {}),
-        'List-Unsubscribe': `<mailto:${defaultFromEmail}>`,
+        'Message-ID': messageId,
         'X-Entity-Ref-ID': `reply-${Date.now()}`,
       },
     });
@@ -87,10 +89,12 @@ export default async function handler(req, res) {
       return res.status(502).json({ error: error.message || 'Failed to send reply' });
     }
 
+    await supabaseAdmin.from('threads').upsert({ thread_id: threadId }, { onConflict: 'thread_id', ignoreDuplicates: true });
+
     const { error: storeError } = await supabaseAdmin.from('emails').insert({
       thread_id: threadId,
       direction: 'outbound',
-      message_id: data?.id || null,
+      message_id: messageId,
       in_reply_to: inReplyToMessageId || null,
       from_address: fromAddress,
       to_address: to,
@@ -109,7 +113,7 @@ export default async function handler(req, res) {
       thread_id: threadId,
       actor_email: session.email,
       activity_type: 'reply_sent',
-      message_id: data?.id || null,
+      message_id: messageId,
       details: { to, subject: normalizedSubject },
     });
 

@@ -61,6 +61,8 @@ export default async function handler(req, res) {
   const htmlBody = `<p><strong>Name:</strong> ${escapeHtml(visitorName)}<br/><strong>Email:</strong> ${escapeHtml(visitorEmail)}</p><p>${escapeHtml(visitorMessage).replace(/\n/g, '<br/>')}</p>`;
 
   try {
+    const senderEmail = (process.env.RESEND_FROM_ADDRESS.match(/<(.+)>/)?.[1] || process.env.RESEND_FROM_ADDRESS).trim();
+    const widgetMessageId = `<${randomUUID()}@${senderEmail.split('@')[1] || 'localhost'}>`;
     const { data, error } = await resend.emails.send({
       from: process.env.RESEND_FROM_ADDRESS,
       to: [destination],
@@ -68,21 +70,24 @@ export default async function handler(req, res) {
       subject: `[Website] ${cleanSubject}`,
       text: textBody,
       html: htmlBody,
-      headers: { 'X-Entity-Ref-ID': `widget-${Date.now()}` },
+      headers: { 'X-Agosoft-Widget': '1', 'X-Entity-Ref-ID': `widget-${Date.now()}` },
     });
 
     if (error) return res.status(502).json({ error: error.message || 'Failed to send contact message.' });
 
+    await supabaseAdmin.from('threads').upsert({ thread_id: threadId }, { onConflict: 'thread_id', ignoreDuplicates: true });
+    // inbound.js ignores the notification if Cloudflare routes it back with X-Agosoft-Widget.
     const { error: storeError } = await supabaseAdmin.from('emails').insert({
       thread_id: threadId,
-      direction: 'outbound',
-      message_id: data?.id || null,
-      from_address: process.env.RESEND_FROM_ADDRESS,
+      direction: 'inbound',
+      message_id: widgetMessageId,
+      from_address: visitorEmail,
       to_address: destination,
       subject: `[Website] ${cleanSubject}`,
       text_body: textBody,
       html_body: htmlBody,
-      folder: 'sent',
+      folder: 'inbox',
+      label: 'website',
       sender_domain: visitorEmail.split('@')[1],
       attachments: [],
     });
@@ -96,7 +101,7 @@ export default async function handler(req, res) {
 }
 
 function isAllowedOrigin(origin, allowedOrigins) {
-  return Boolean(origin) && (allowedOrigins.includes('*') || allowedOrigins.includes(origin));
+  return Boolean(origin) && (allowedOrigins.includes(origin) || (allowedOrigins.includes('*') && process.env.CONTACT_WIDGET_ALLOW_ANY_ORIGIN === 'true'));
 }
 
 function setCorsHeaders(res, origin, allowedOrigins) {
@@ -110,6 +115,9 @@ function setCorsHeaders(res, origin, allowedOrigins) {
 
 function isRateLimited(ip) {
   const now = Date.now();
+  for (const [key, entry] of hits) {
+    if (now - entry.start > WINDOW_MS) hits.delete(key);
+  }
   const entry = hits.get(ip) || { count: 0, start: now };
   if (now - entry.start > WINDOW_MS) {
     entry.count = 0;

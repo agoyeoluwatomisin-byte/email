@@ -1,11 +1,14 @@
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
+import { requireSession } from '../../../lib/auth';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { direction, threadId, folder, starred, search, senderDomain, fromDate, toDate, read, limit = '300' } = req.query || {};
+  if (!(await requireSession(req, res))) return;
+
+  const { direction, threadId, folder, starred, search, senderDomain, fromDate, toDate, read, before, limit = '300' } = req.query || {};
 
   let query = supabaseAdmin.from('emails').select('*');
 
@@ -43,6 +46,11 @@ export default async function handler(req, res) {
     query = query.eq('read', read === 'true');
   }
 
+  if (before) {
+    const beforeDate = new Date(String(before));
+    if (!Number.isNaN(beforeDate.getTime())) query = query.lt('received_at', beforeDate.toISOString());
+  }
+
   if (search) {
     const term = String(search).trim().replace(/[%(),]/g, ' ');
     if (term) {
@@ -52,7 +60,7 @@ export default async function handler(req, res) {
 
   const { data, error } = await query
     .order('received_at', { ascending: false })
-    .limit(Number(limit) || 300);
+    .limit(Math.min(Math.max(Number(limit) || 300, 1), 500));
 
   if (error) {
     console.error('Failed to load emails:', error);

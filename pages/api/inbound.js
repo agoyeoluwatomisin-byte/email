@@ -1,6 +1,9 @@
 import { randomUUID } from 'crypto';
+import crypto from 'crypto';
 import { Resend } from 'resend';
 import { supabaseAdmin } from '../../lib/supabaseAdmin';
+
+export const config = { api: { bodyParser: { sizeLimit: '4mb' } } };
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -11,14 +14,29 @@ export default async function handler(req, res) {
   }
 
   const secret = req.headers['x-inbound-secret'];
-  if (!secret || secret !== process.env.INBOUND_SHARED_SECRET) {
+  const expectedSecret = process.env.INBOUND_SHARED_SECRET || '';
+  const providedSecret = Buffer.from(String(secret || ''));
+  const expectedSecretBuffer = Buffer.from(expectedSecret);
+  if (!secret || providedSecret.length !== expectedSecretBuffer.length || !crypto.timingSafeEqual(providedSecret, expectedSecretBuffer)) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  const { messageId, inReplyTo, from, to, subject, text, html, attachments } = req.body || {};
+  const { messageId, inReplyTo, references, from, to, subject, text, html, attachments, xWidget } = req.body || {};
+
+  if (xWidget) return res.status(200).json({ success: true, ignored: true });
 
   if (!from || !to) {
     return res.status(400).json({ error: 'from and to are required' });
+  }
+
+  if (messageId) {
+    const { data: existing } = await supabaseAdmin
+      .from('emails')
+      .select('id')
+      .eq('message_id', messageId)
+      .eq('direction', 'inbound')
+      .maybeSingle();
+    if (existing) return res.status(200).json({ success: true, duplicate: true });
   }
 
   const label = deriveInboundLabel(to);
@@ -26,19 +44,40 @@ export default async function handler(req, res) {
   // Thread the message: if it's a reply to something we already have,
   // reuse that thread_id. Otherwise start a new thread.
   let threadId = randomUUID();
+  let matchedHeader = false;
 
-  if (inReplyTo) {
+  const referenceIds = [...new Set([...(Array.isArray(references) ? references : String(references || '').split(/\s+/)), inReplyTo].filter(Boolean))];
+  if (referenceIds.length) {
     const { data: parent } = await supabaseAdmin
       .from('emails')
       .select('thread_id')
-      .eq('message_id', inReplyTo)
+      .in('message_id', referenceIds)
       .limit(1)
       .maybeSingle();
 
     if (parent) {
       threadId = parent.thread_id;
+      matchedHeader = true;
     }
   }
+
+  if (!matchedHeader) {
+    const normalizedSubject = normalizeSubject(subject);
+    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const { data: candidates } = await supabaseAdmin
+      .from('emails')
+      .select('thread_id, subject, from_address')
+      .eq('direction', 'inbound')
+      .eq('from_address', from)
+      .gte('received_at', cutoff)
+      .order('received_at', { ascending: false })
+      .limit(50);
+    const subjectMatch = (candidates || []).find((candidate) => normalizeSubject(candidate.subject) === normalizedSubject);
+    if (subjectMatch) threadId = subjectMatch.thread_id;
+  }
+
+  await supabaseAdmin.from('threads').upsert({ thread_id: threadId }, { onConflict: 'thread_id', ignoreDuplicates: true });
+  await supabaseAdmin.from('threads').update({ status: 'new', updated_at: new Date().toISOString() }).eq('thread_id', threadId).eq('status', 'closed');
 
   const storedAttachments = await storeInboundAttachments(threadId, attachments);
   if (storedAttachments.error) {
@@ -63,6 +102,7 @@ export default async function handler(req, res) {
   });
 
   if (error) {
+    if (error.code === '23505') return res.status(200).json({ success: true, duplicate: true });
     console.error('Failed to store inbound email:', error);
     return res.status(500).json({ error: 'Failed to store email' });
   }
@@ -160,4 +200,8 @@ function deriveInboundLabel(value) {
 function deriveSenderDomain(value) {
   const address = String(value).toLowerCase().match(/<([^>]+)>/)?.[1] || String(value).split(/[;,]/)[0];
   return address.trim().replace(/^mailto:/, '').split('@')[1]?.replace(/[^a-z0-9.-]/g, '') || null;
+}
+
+function normalizeSubject(value) {
+  return String(value || '(no subject)').replace(/^(\s*(re|fw|fwd)\s*:\s*)+/i, '').trim().toLowerCase();
 }

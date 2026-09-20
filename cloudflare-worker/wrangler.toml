@@ -17,5 +17,6 @@ persist = true
 # ...
 
 # Secrets (set these with `wrangler secret put <NAME>`, not here):
-#   INBOUND_WEBHOOK_URL     e.g. 
-#   INBOUND_SHARED_SECRET   a random string, must match the app's INBOUND_SHARED_SECRET
+#   INBOUND_WEBHOOK_URL     e.g. https://your-app.example.com/api/inbound
+#   INBOUND_SHARED_SECRET   a random string matching the app's INBOUND_SHARED_SECRET
+#   FALLBACK_FORWARD_ADDRESS optional address used when webhook delivery fails

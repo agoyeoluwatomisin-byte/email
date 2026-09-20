@@ -1,6 +1,7 @@
 import { Resend } from 'resend';
 import { randomUUID } from 'crypto';
 import { supabaseAdmin } from '../../lib/supabaseAdmin';
+import { requireSession } from '../../lib/auth';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -13,6 +14,9 @@ const MAX_PER_WINDOW = 5;
 
 function isRateLimited(ip) {
   const now = Date.now();
+  for (const [key, entry] of hits) {
+    if (now - entry.start > WINDOW_MS) hits.delete(key);
+  }
   const entry = hits.get(ip) || { count: 0, start: now };
   if (now - entry.start > WINDOW_MS) {
     entry.count = 0;
@@ -28,6 +32,8 @@ export default async function handler(req, res) {
     res.setHeader('Allow', ['POST']);
     return res.status(405).json({ error: 'Method not allowed' });
   }
+
+  if (!(await requireSession(req, res))) return;
 
   const ip =
     req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
@@ -58,7 +64,7 @@ export default async function handler(req, res) {
 
   const normalizedMessage = String(message).trim();
   const normalizedSubject = String(subject).trim();
-  const spamSignals = /(viagra|cialis|bitcoin|crypto|free money|click here|earn.*\$|limited time offer|urgent cash)/i;
+  const spamSignals = /(viagra|cialis|free money|earn.*\$|limited time offer|urgent cash)/i;
 
   if (spamSignals.test(normalizedSubject) || spamSignals.test(normalizedMessage)) {
     return res.status(400).json({ error: 'Message looks like spam and is blocked for safety.' });
@@ -77,6 +83,10 @@ export default async function handler(req, res) {
   const ccList = normalizeList(cc);
   const bccList = normalizeList(bcc);
   const allRecipients = [...recipientList, ...ccList, ...bccList];
+
+  if ([...allRecipients, ...(replyTo ? [replyTo] : [])].some((recipient) => !isEmail(recipient))) {
+    return res.status(400).json({ error: 'Every recipient and reply-to address must be valid.' });
+  }
 
   if (allRecipients.length > 10) {
     return res.status(400).json({ error: 'Bulk recipient lists are blocked to reduce spam risk.' });
@@ -97,6 +107,8 @@ export default async function handler(req, res) {
   const htmlBody = `<p>${escapeHtml(normalizedMessage).replace(/\n/g, '<br/>')}</p>`;
 
   try {
+    const fromEmail = (process.env.RESEND_FROM_ADDRESS.match(/<(.+)>/)?.[1] || process.env.RESEND_FROM_ADDRESS).trim();
+    const messageId = `<${randomUUID()}@${fromEmail.split('@')[1] || 'localhost'}>`;
     const { data, error } = await resend.emails.send({
       from: process.env.RESEND_FROM_ADDRESS,
       to: recipientList,
@@ -107,7 +119,7 @@ export default async function handler(req, res) {
       html: htmlBody,
       ...(replyTo ? { reply_to: replyTo } : {}),
       headers: {
-        'List-Unsubscribe': `<mailto:${process.env.RESEND_FROM_ADDRESS}>`,
+        'Message-ID': messageId,
         'X-Entity-Ref-ID': `mail-${Date.now()}`,
       },
       ...(Array.isArray(attachments) && attachments.length
@@ -126,10 +138,11 @@ export default async function handler(req, res) {
     }
 
     const threadId = randomUUID();
+  await supabaseAdmin.from('threads').upsert({ thread_id: threadId }, { onConflict: 'thread_id', ignoreDuplicates: true });
     const { error: storeError } = await supabaseAdmin.from('emails').insert({
       thread_id: threadId,
       direction: 'outbound',
-      message_id: data?.id || null,
+      message_id: messageId,
       from_address: process.env.RESEND_FROM_ADDRESS,
       to_address: recipientList.join(', '),
       subject: normalizedSubject,
@@ -165,4 +178,8 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+function isEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || ''));
 }

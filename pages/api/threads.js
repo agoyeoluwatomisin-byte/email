@@ -1,32 +1,38 @@
 import { supabaseAdmin } from '../../lib/supabaseAdmin';
-import { getSessionFromRequest } from '../../lib/auth';
+import { requireSession } from '../../lib/auth';
 
 const statuses = ['new', 'in progress', 'closed'];
 
 export default async function handler(req, res) {
-  const session = getSessionFromRequest(req);
-  if (!session) return res.status(401).json({ error: 'Authentication required' });
+  const session = await requireSession(req, res);
+  if (!session) return;
 
   if (req.method === 'GET') {
-    const { data, error } = await supabaseAdmin
+    const { data: emails, error: emailError } = await supabaseAdmin
       .from('emails')
-      .select('thread_id, status, claimed_by, subject, from_address, to_address, received_at, read, direction')
+      .select('thread_id, subject, from_address, to_address, received_at, read, direction')
       .order('received_at', { ascending: false })
       .limit(1000);
 
-    if (error) {
-      console.error('Failed to load threads:', error);
+    const { data: threadRows, error: threadError } = await supabaseAdmin
+      .from('threads')
+      .select('thread_id, status, claimed_by');
+
+    if (emailError || threadError) {
+      console.error('Failed to load threads:', emailError || threadError);
       return res.status(500).json({ error: 'Failed to load threads' });
     }
 
+    const threadState = new Map((threadRows || []).map((thread) => [thread.thread_id, thread]));
     const threads = new Map();
-    for (const email of data || []) {
+    for (const email of emails || []) {
+      const state = threadState.get(email.thread_id) || { status: 'new', claimed_by: null };
       const current = threads.get(email.thread_id);
       if (!current) {
         threads.set(email.thread_id, {
           threadId: email.thread_id,
-          status: email.status || 'new',
-          claimedBy: email.claimed_by || null,
+          status: state.status || 'new',
+          claimedBy: state.claimed_by || null,
           subject: email.subject || '(no subject)',
           contact: email.direction === 'inbound' ? email.from_address : email.to_address,
           latestAt: email.received_at,
@@ -42,8 +48,8 @@ export default async function handler(req, res) {
         current.latestAt = email.received_at;
         current.subject = email.subject || current.subject;
         current.contact = email.direction === 'inbound' ? email.from_address : email.to_address;
-        current.status = email.status || current.status;
-        current.claimedBy = email.claimed_by || current.claimedBy;
+        current.status = state.status || current.status;
+        current.claimedBy = state.claimed_by || current.claimedBy;
       }
     }
 
@@ -60,10 +66,9 @@ export default async function handler(req, res) {
     if (claim === true || claim === false) {
       if (claim === true) {
         const { data: current, error: readError } = await supabaseAdmin
-          .from('emails')
+          .from('threads')
           .select('claimed_by')
           .eq('thread_id', threadId)
-          .limit(1)
           .maybeSingle();
 
         if (readError) return res.status(500).json({ error: 'Failed to read thread ownership' });
@@ -71,12 +76,12 @@ export default async function handler(req, res) {
           return res.status(409).json({ error: `Thread is already claimed by ${current.claimed_by}`, claimedBy: current.claimed_by });
         }
 
-        const { error } = await supabaseAdmin.from('emails').update({ claimed_by: claimedBy }).eq('thread_id', threadId).is('claimed_by', null);
+        const { error } = await supabaseAdmin.from('threads').update({ claimed_by: claimedBy, updated_at: new Date().toISOString() }).eq('thread_id', threadId).is('claimed_by', null);
         if (error) return res.status(500).json({ error: 'Failed to claim thread' });
         return res.status(200).json({ success: true, threadId, claimedBy });
       }
 
-      const { error } = await supabaseAdmin.from('emails').update({ claimed_by: null }).eq('thread_id', threadId).eq('claimed_by', claimedBy);
+      const { error } = await supabaseAdmin.from('threads').update({ claimed_by: null, updated_at: new Date().toISOString() }).eq('thread_id', threadId).eq('claimed_by', claimedBy);
       if (error) return res.status(500).json({ error: 'Failed to release thread' });
       return res.status(200).json({ success: true, threadId, claimedBy: null });
     }
@@ -86,8 +91,8 @@ export default async function handler(req, res) {
     }
 
     const { error } = await supabaseAdmin
-      .from('emails')
-      .update({ status })
+      .from('threads')
+      .update({ status, updated_at: new Date().toISOString() })
       .eq('thread_id', threadId);
 
     if (error) {
