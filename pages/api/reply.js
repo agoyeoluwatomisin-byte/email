@@ -1,9 +1,7 @@
-import { Resend } from 'resend';
-import { randomUUID } from 'crypto';
 import { supabaseAdmin } from '../../lib/supabaseAdmin';
 import { requireSession } from '../../lib/auth';
-
-const resend = new Resend(process.env.RESEND_API_KEY);
+import { sendOutboundEmail } from '../../lib/sendOutbound';
+import { sanitizeEmailHtml } from '../../lib/emailContent';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -11,7 +9,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { threadId, to, from, subject, message, inReplyToMessageId } = req.body || {};
+  const { threadId, to, cc, bcc, from, subject, message, html, attachments, inReplyToMessageId, references, action } = req.body || {};
   const session = await requireSession(req, res);
   if (!session) return;
 
@@ -71,49 +69,29 @@ export default async function handler(req, res) {
   }
 
   try {
-    const messageId = `<${randomUUID()}@${defaultFromEmail.split('@')[1] || 'localhost'}>`;
-    const { data, error } = await resend.emails.send({
-      from: fromAddress,
-      to: [to],
-      subject: normalizedSubject.startsWith('Re:') ? normalizedSubject : `Re: ${normalizedSubject}`,
-      text: normalizedMessage,
-      html: `<p>${escapeHtml(normalizedMessage).replace(/\n/g, '<br/>')}</p>`,
-      headers: {
-        ...(inReplyToMessageId ? { 'In-Reply-To': inReplyToMessageId, References: inReplyToMessageId } : {}),
-        'Message-ID': messageId,
-        'X-Entity-Ref-ID': `reply-${Date.now()}`,
-      },
+    const { data: signature } = await supabaseAdmin.from('user_signatures').select('signature_html, signature_text').eq('user_id', session.user.id).maybeSingle();
+    const textBody = `${normalizedMessage}${action === 'forward' ? '' : signature?.signature_text ? `\n\n${signature.signature_text}` : ''}`;
+    const htmlBody = sanitizeEmailHtml(`${html || `<p>${escapeHtml(normalizedMessage).replace(/\n/g, '<br/>')}</p>`}${action === 'forward' ? '' : signature?.signature_html || ''}`);
+    const result = await sendOutboundEmail({
+      userId: session.user.id,
+      threadId,
+      to: Array.isArray(to) ? to : String(to).split(',').map((item) => item.trim()).filter(Boolean),
+      cc: Array.isArray(cc) ? cc : String(cc || '').split(',').map((item) => item.trim()).filter(Boolean),
+      bcc: Array.isArray(bcc) ? bcc : String(bcc || '').split(',').map((item) => item.trim()).filter(Boolean),
+      replyTo: fromAddress,
+      subject: normalizedSubject.startsWith('Re:') || action === 'forward' ? normalizedSubject : `Re: ${normalizedSubject}`,
+      text: textBody,
+      html: htmlBody,
+      attachments,
+      inReplyTo: inReplyToMessageId,
+      references: references || inReplyToMessageId,
     });
-
-    if (error) {
-      return res.status(502).json({ error: error.message || 'Failed to send reply' });
-    }
-
-    await supabaseAdmin.from('threads').upsert({ thread_id: threadId }, { onConflict: 'thread_id', ignoreDuplicates: true });
-
-    const { error: storeError } = await supabaseAdmin.from('emails').insert({
-      thread_id: threadId,
-      direction: 'outbound',
-      message_id: messageId,
-      in_reply_to: inReplyToMessageId || null,
-      from_address: fromAddress,
-      to_address: to,
-      subject: normalizedSubject,
-      text_body: normalizedMessage,
-      html_body: `<p>${escapeHtml(normalizedMessage).replace(/\n/g, '<br/>')}</p>`,
-      folder: 'sent',
-    });
-
-    if (storeError) {
-      console.error('Reply sent but could not be stored:', storeError);
-      return res.status(502).json({ error: 'Reply sent, but could not be stored.' });
-    }
 
     const { error: activityError } = await supabaseAdmin.from('thread_activity').insert({
       thread_id: threadId,
       actor_email: session.email,
       activity_type: 'reply_sent',
-      message_id: messageId,
+      message_id: result.messageId,
       details: { to, subject: normalizedSubject },
     });
 
@@ -121,7 +99,7 @@ export default async function handler(req, res) {
       console.error('Reply sent but activity could not be recorded:', activityError);
     }
 
-    return res.status(200).json({ success: true, id: data?.id });
+    return res.status(200).json({ success: true, id: result.id, messageId: result.messageId });
   } catch (err) {
     console.error('reply error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });

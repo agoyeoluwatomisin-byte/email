@@ -19,6 +19,9 @@ export default {
         subject: parsed.subject || '(no subject)',
         text: parsed.text || '',
         html: parsed.html || '',
+        authenticationResults: getHeader(parsed.headers, 'authentication-results'),
+        autoSubmitted: getHeader(parsed.headers, 'auto-submitted'),
+        precedence: getHeader(parsed.headers, 'precedence'),
         xWidget: hasWidgetHeader(parsed.headers),
         attachments: (parsed.attachments || []).map((attachment) => {
           const size = attachment.size || 0;
@@ -85,4 +88,8 @@ function toBase64(value) {
 
 function hasWidgetHeader(headers) {
   return (headers || []).some((header) => String(header.key || header.name || '').toLowerCase() === 'x-agosoft-widget' && String(header.value || '').trim() === '1');
+}
+
+function getHeader(headers, name) {
+  return (headers || []).find((header) => String(header.key || header.name || '').toLowerCase() === name)?.value || null;
 }

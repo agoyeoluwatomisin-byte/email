@@ -2,6 +2,8 @@ import { randomUUID } from 'crypto';
 import crypto from 'crypto';
 import { Resend } from 'resend';
 import { supabaseAdmin } from '../../lib/supabaseAdmin';
+import { firstMatchingRule } from '../../lib/rules';
+import { sendOutboundEmail } from '../../lib/sendOutbound';
 
 export const config = { api: { bodyParser: { sizeLimit: '4mb' } } };
 
@@ -21,7 +23,7 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  const { messageId, inReplyTo, references, from, to, subject, text, html, attachments, xWidget } = req.body || {};
+  const { messageId, inReplyTo, references, from, to, subject, text, html, attachments, xWidget, authenticationResults, autoSubmitted, precedence } = req.body || {};
 
   if (xWidget) return res.status(200).json({ success: true, ignored: true });
 
@@ -40,6 +42,24 @@ export default async function handler(req, res) {
   }
 
   const label = deriveInboundLabel(to);
+  const senderEmail = String(from).toLowerCase().match(/<([^>]+)>/)?.[1] || String(from).toLowerCase().trim();
+  const senderDomain = deriveSenderDomain(from);
+  const { data: senderEntries } = await supabaseAdmin.from('sender_lists').select('value, list_type');
+  const allowedSender = (senderEntries || []).some((entry) => entry.list_type === 'allow' && (entry.value === senderEmail || entry.value === senderDomain));
+  const blockedSender = !allowedSender && (senderEntries || []).some((entry) => entry.list_type === 'block' && (entry.value === senderEmail || entry.value === senderDomain));
+  const { data: rules } = await supabaseAdmin.from('rules').select('*').eq('enabled', true).order('order_index');
+  const matchedRule = firstMatchingRule({ from, to, subject, hasAttachment: Array.isArray(attachments) && attachments.length > 0 }, rules || []);
+  const { data: mailboxSetting } = await supabaseAdmin.from('mailbox_settings').select('round_robin_enabled, next_user_id').eq('label', label).maybeSingle();
+  let assignedUser = matchedRule?.actions?.assign_to || null;
+  if (!assignedUser && mailboxSetting?.round_robin_enabled) {
+    const { data: availableUsers } = await supabaseAdmin.from('users').select('id, email').eq('active', true).eq('availability', 'available').order('email');
+    if (availableUsers?.length) {
+      const currentIndex = availableUsers.findIndex((user) => user.id === mailboxSetting.next_user_id);
+      const next = availableUsers[(currentIndex + 1) % availableUsers.length];
+      assignedUser = next.email;
+      await supabaseAdmin.from('mailbox_settings').update({ next_user_id: next.id }).eq('label', label);
+    }
+  }
 
   // Thread the message: if it's a reply to something we already have,
   // reuse that thread_id. Otherwise start a new thread.
@@ -76,6 +96,9 @@ export default async function handler(req, res) {
     if (subjectMatch) threadId = subjectMatch.thread_id;
   }
 
+  const { data: priorInbound } = await supabaseAdmin.from('emails').select('id').eq('thread_id', threadId).eq('direction', 'inbound').limit(1);
+  const { data: contact } = await supabaseAdmin.from('contacts').upsert({ email: senderEmail, updated_at: new Date().toISOString() }, { onConflict: 'email' }).select('id').single();
+
   await supabaseAdmin.from('threads').upsert({ thread_id: threadId }, { onConflict: 'thread_id', ignoreDuplicates: true });
   await supabaseAdmin.from('threads').update({ status: 'new', updated_at: new Date().toISOString() }).eq('thread_id', threadId).eq('status', 'closed');
 
@@ -91,13 +114,17 @@ export default async function handler(req, res) {
     message_id: messageId,
     in_reply_to: inReplyTo,
     from_address: from,
-    sender_domain: deriveSenderDomain(from),
+    sender_domain: senderDomain,
     to_address: to,
     subject,
     text_body: text,
     html_body: html,
-    folder: 'inbox',
-    label,
+    folder: blockedSender || matchedRule?.actions?.folder === 'spam' ? 'spam' : matchedRule?.actions?.folder || 'inbox',
+    label: matchedRule?.actions?.label || label,
+    read: Boolean(matchedRule?.actions?.mark_read),
+    starred: Boolean(matchedRule?.actions?.star),
+    authentication_results: String(authenticationResults || '').slice(0, 2000) || null,
+    contact_id: contact?.id || null,
     attachments: storedAttachments.files,
   });
 
@@ -108,8 +135,37 @@ export default async function handler(req, res) {
   }
 
   await notifyInboundEmail({ from, to, subject, text, threadId });
+  await notifyOutboundWebhook({ from, to, subject, threadId });
+
+  if (assignedUser) await supabaseAdmin.from('threads').update({ claimed_by: String(assignedUser).slice(0, 320), updated_at: new Date().toISOString() }).eq('thread_id', threadId);
+  await maybeAutoReply({ from, to, subject, text, threadId, autoSubmitted, precedence, isFirstInbound: !(priorInbound || []).length });
 
   return res.status(200).json({ success: true });
+}
+
+async function notifyOutboundWebhook(payload) {
+  if (!process.env.OUTBOUND_WEBHOOK_URL) return;
+  try {
+    const body = JSON.stringify({ event: 'inbound.message', ...payload });
+    const signature = crypto.createHmac('sha256', process.env.OUTBOUND_WEBHOOK_SECRET || '').update(body).digest('hex');
+    await fetch(process.env.OUTBOUND_WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Agosoft-Signature': signature }, body });
+  } catch (error) {
+    console.error('Outbound webhook failed:', error);
+  }
+}
+
+async function maybeAutoReply({ from, to, subject, text, threadId, autoSubmitted, precedence, isFirstInbound }) {
+  if (!isFirstInbound || /no[-_ ]?reply/i.test(from) || autoSubmitted || /bulk|list/i.test(String(precedence || ''))) return;
+  const { data: setting } = await supabaseAdmin.from('mailbox_settings').select('auto_reply_enabled, business_hours_reply, out_of_hours_reply').eq('label', deriveInboundLabel(to)).maybeSingle();
+  if (!setting?.auto_reply_enabled) return;
+  const { data: recent } = await supabaseAdmin.from('emails').select('id').eq('direction', 'outbound').eq('to_address', from).gte('received_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()).limit(1);
+  if (recent?.length) return;
+  const message = setting.business_hours_reply || 'Thanks for contacting us. We have received your message and will be in touch soon.';
+  try {
+    await sendOutboundEmail({ threadId, to: [from], subject: `Re: ${String(subject || '(no subject)').slice(0, 900)}`, text: message, html: `<p>${escapeHtml(message)}</p>` });
+  } catch (error) {
+    console.error('Auto-reply failed:', error);
+  }
 }
 
 async function storeInboundAttachments(threadId, attachments) {

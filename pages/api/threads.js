@@ -1,5 +1,7 @@
 import { supabaseAdmin } from '../../lib/supabaseAdmin';
 import { requireSession } from '../../lib/auth';
+import { Resend } from 'resend';
+import { createCsatToken } from '../../lib/csat';
 
 const statuses = ['new', 'in progress', 'closed'];
 
@@ -98,6 +100,16 @@ export default async function handler(req, res) {
     if (error) {
       console.error('Failed to update thread status:', error);
       return res.status(500).json({ error: 'Failed to update thread status' });
+    }
+
+    if (status === 'closed' && process.env.CSAT_ENABLED === 'true' && process.env.RESEND_FROM_ADDRESS && process.env.RESEND_API_KEY) {
+      const { data: inbound } = await supabaseAdmin.from('emails').select('from_address, subject').eq('thread_id', threadId).eq('direction', 'inbound').order('received_at', { ascending: false }).limit(1).maybeSingle();
+      if (inbound) {
+        const token = createCsatToken(threadId, inbound.from_address);
+        const baseUrl = process.env.APP_URL || `https://${req.headers.host}`;
+        const links = [1, 2, 3, 4, 5].map((rating) => `${baseUrl}/csat?token=${encodeURIComponent(token)}&rating=${rating}`).join('\n');
+        await new Resend(process.env.RESEND_API_KEY).emails.send({ from: process.env.RESEND_FROM_ADDRESS, to: [inbound.from_address], subject: 'How did we do?', text: `Please rate your support experience from 1 to 5:\n\n${links}` });
+      }
     }
 
     return res.status(200).json({ success: true, threadId, status });

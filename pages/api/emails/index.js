@@ -11,6 +11,7 @@ export default async function handler(req, res) {
   const { direction, threadId, folder, starred, search, senderDomain, fromDate, toDate, read, before, limit = '300' } = req.query || {};
 
   let query = supabaseAdmin.from('emails').select('*');
+  if (folder !== 'trash') query = query.is('deleted_at', null);
 
   if (direction) {
     query = query.eq('direction', direction);
@@ -54,7 +55,7 @@ export default async function handler(req, res) {
   if (search) {
     const term = String(search).trim().replace(/[%(),]/g, ' ');
     if (term) {
-      query = query.or(`from_address.ilike.%${term}%,subject.ilike.%${term}%,text_body.ilike.%${term}%`);
+      query = query.textSearch('search_vector', term, { type: 'websearch', config: 'simple' });
     }
   }
 
@@ -67,10 +68,18 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Failed to load emails' });
   }
 
+  const messageIds = (data || []).map((email) => email.message_id).filter(Boolean);
+  const { data: events } = messageIds.length
+    ? await supabaseAdmin.from('email_events').select('message_id, event_type, occurred_at').in('message_id', messageIds).order('occurred_at', { ascending: false })
+    : { data: [] };
+  const latestEvents = new Map();
+  for (const event of events || []) if (!latestEvents.has(event.message_id)) latestEvents.set(event.message_id, event);
+
   return res.status(200).json({
     emails: (data || []).map((email) => ({
       ...email,
       attachments: normalizeAttachments(email.attachments),
+      deliveryStatus: latestEvents.get(email.message_id)?.event_type || null,
     })),
   });
 }

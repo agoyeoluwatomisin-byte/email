@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import RichEditor from '../components/RichEditor';
 
 const quickContacts = ['hello@yourdomain.com', 'support@yourdomain.com', 'sales@yourdomain.com'];
 
@@ -26,31 +27,44 @@ function getSpamRiskScore({ to, subject, message }) {
 }
 
 export default function Home() {
-  const [form, setForm] = useState({ to: '', cc: '', bcc: '', subject: '', message: '', replyTo: '' });
+  const [form, setForm] = useState({ to: '', cc: '', bcc: '', subject: '', message: '', html: '', replyTo: '' });
   const [status, setStatus] = useState({ state: 'idle', message: '' });
   const [attachments, setAttachments] = useState([]);
   const [draftSaved, setDraftSaved] = useState(false);
+  const [draftId, setDraftId] = useState(null);
+  const [undoPayload, setUndoPayload] = useState(null);
+  const [undoSeconds, setUndoSeconds] = useState(0);
+  const [scheduledAt, setScheduledAt] = useState('');
   const [confirmRiskySend, setConfirmRiskySend] = useState(false);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const savedDraft = localStorage.getItem('email-compose-draft');
-    if (savedDraft) {
-      try {
-        setForm({ ...form, ...JSON.parse(savedDraft) });
-      } catch (error) {
-        // ignore malformed draft
+    fetch('/api/drafts').then((response) => response.ok ? response.json() : { drafts: [] }).then((data) => {
+      const draft = data.drafts?.find((item) => item.kind === 'compose');
+      if (draft) {
+        setDraftId(draft.id);
+        setForm({ to: draft.to_address, cc: draft.cc, bcc: draft.bcc, subject: draft.subject, message: draft.text_body, html: draft.html_body, replyTo: draft.reply_to });
+        setAttachments(draft.attachments || []);
       }
-    }
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    localStorage.setItem('email-compose-draft', JSON.stringify(form));
-    setDraftSaved(true);
-    const timeout = setTimeout(() => setDraftSaved(false), 800);
+    const timeout = setTimeout(async () => {
+      const response = await fetch('/api/drafts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: draftId, kind: 'compose', ...form, attachments }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setDraftId(data.draft?.id || draftId);
+        setDraftSaved(true);
+        setTimeout(() => setDraftSaved(false), 800);
+      }
+    }, 2000);
     return () => clearTimeout(timeout);
-  }, [form]);
+  }, [form, attachments, draftId]);
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -58,13 +72,6 @@ export default function Home() {
 
   const handleAttachmentChange = (e) => {
     const files = Array.from(e.target.files || []);
-
-    const mapped = files.map((file) => ({
-      name: file.name,
-      contentType: file.type || 'application/octet-stream',
-      size: file.size,
-      content: '',
-    }));
 
     Promise.all(
       files.map(
@@ -83,7 +90,26 @@ export default function Home() {
             reader.readAsDataURL(file);
           })
       )
-    ).then((normalized) => setAttachments(normalized));
+    ).then(async (normalized) => {
+      const response = await fetch('/api/attachments/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: normalized }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setStatus({ state: 'error', message: data.error || 'Unable to upload attachments.' });
+        return;
+      }
+      setAttachments(data.attachments || []);
+    });
+  };
+
+  const sendNow = async (payload) => {
+    const res = await fetch('/api/send-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Something went wrong');
+    return data;
   };
 
   const handleSubmit = async (e) => {
@@ -98,34 +124,50 @@ export default function Home() {
       return;
     }
 
-    setStatus({ state: 'loading', message: '' });
-
-    try {
-      const payload = {
-        ...form,
-        attachments,
-      };
-
-      const res = await fetch('/api/send-email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-
-      if (!res.ok) {
-        setStatus({ state: 'error', message: data.error || 'Something went wrong' });
-        return;
+    const payload = { ...form, attachments };
+    if (scheduledAt) {
+      setStatus({ state: 'loading', message: '' });
+      try {
+        const response = await fetch('/api/scheduled', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scheduledAt: new Date(scheduledAt).toISOString(), payload }) });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Unable to schedule email.');
+        setStatus({ state: 'success', message: 'Email scheduled.' });
+        setScheduledAt('');
+        setForm({ to: '', cc: '', bcc: '', subject: '', message: '', html: '', replyTo: '' });
+        setAttachments([]);
+      } catch (error) {
+        setStatus({ state: 'error', message: error.message });
       }
-
-      localStorage.removeItem('email-compose-draft');
-      setStatus({ state: 'success', message: 'Email sent!' });
-      setConfirmRiskySend(false);
-      setForm({ to: '', cc: '', bcc: '', subject: '', message: '', replyTo: '' });
-      setAttachments([]);
-    } catch (err) {
-      setStatus({ state: 'error', message: 'Network error, please try again' });
+      return;
     }
+
+    setUndoPayload(payload);
+    setUndoSeconds(10);
+    setStatus({ state: 'warning', message: 'Email held for 10 seconds.' });
+    return;
+  };
+
+  useEffect(() => {
+    if (!undoPayload) return undefined;
+    const interval = setInterval(() => setUndoSeconds((current) => Math.max(current - 1, 0)), 1000);
+    const timeout = setTimeout(async () => {
+      try {
+        await sendNow(undoPayload);
+        setStatus({ state: 'success', message: 'Email sent!' });
+        setUndoPayload(null);
+        setForm({ to: '', cc: '', bcc: '', subject: '', message: '', html: '', replyTo: '' });
+        setAttachments([]);
+      } catch (error) {
+        setStatus({ state: 'error', message: error.message });
+      }
+    }, 10000);
+    return () => { clearInterval(interval); clearTimeout(timeout); };
+  }, [undoPayload]);
+
+  const handleUndo = () => {
+    setUndoPayload(null);
+    setUndoSeconds(0);
+    setStatus({ state: 'idle', message: 'Send cancelled.' });
   };
 
   const missingSender = useMemo(
@@ -164,16 +206,7 @@ export default function Home() {
         {status.state === 'warning' && (
           <div style={styles.warningBox}>
             <strong>Review required:</strong> {status.message}
-            <button
-              type="button"
-              style={styles.warningAction}
-              onClick={() => {
-                setConfirmRiskySend(true);
-                setStatus({ state: 'idle', message: '' });
-              }}
-            >
-              Send anyway
-            </button>
+            {undoPayload ? <button type="button" style={styles.warningAction} onClick={handleUndo}>Undo ({undoSeconds}s)</button> : <button type="button" style={styles.warningAction} onClick={() => { setConfirmRiskySend(true); setStatus({ state: 'idle', message: '' }); }}>Send anyway</button>}
           </div>
         )}
 
@@ -216,14 +249,7 @@ export default function Home() {
 
           <label style={styles.label}>
             Message
-            <textarea
-              style={{ ...styles.input, minHeight: 140, resize: 'vertical' }}
-              name="message"
-              required
-              value={form.message}
-              onChange={handleChange}
-              placeholder="Write your message..."
-            />
+            <RichEditor value={form.html} placeholder="Write your message..." onChange={({ html, text }) => setForm((current) => ({ ...current, html, message: text }))} />
           </label>
 
           <label style={styles.label}>
@@ -245,11 +271,16 @@ export default function Home() {
               <div style={styles.attachmentList}>
                 {attachments.map((file) => (
                   <span key={`${file.name}-${file.size}`} style={styles.attachmentItem}>
-                    {file.name} · {formatBytes(file.size)} · {file.contentType.split('/')[1] || 'file'}
+                    {file.filename || file.name} · {formatBytes(file.size)} · {(file.content_type || file.contentType || 'file').split('/')[1] || 'file'}
                   </span>
                 ))}
               </div>
             )}
+          </label>
+
+          <label style={styles.label}>
+            Send later (optional)
+            <input style={styles.input} type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} min={new Date(Date.now() + 60000).toISOString().slice(0, 16)} />
           </label>
 
           <div className="compose-footer" style={styles.formFooter}>

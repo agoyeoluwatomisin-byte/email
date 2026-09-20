@@ -1,1122 +1,184 @@
 import { useEffect, useMemo, useState } from 'react';
-
-function parseMailboxAddresses(value) {
-  const values = Array.isArray(value) ? value : String(value || '').split(/[;,]/);
-
-  return values
-    .map((item) => {
-      const match = String(item).match(/<([^>]+)>/);
-      return (match ? match[1] : String(item)).trim().toLowerCase();
-    })
-    .map((address) => address.replace(/^mailto:/, '').replace(/[\s"']/g, ''))
-    .filter((address) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(address));
-}
-
-function getFileIcon(attachment) {
-  const type = String(attachment.mimeType || attachment.contentType || '').toLowerCase();
-  if (type.startsWith('image/')) return 'IMG';
-  if (type.includes('pdf')) return 'PDF';
-  if (type.includes('word') || type.includes('document')) return 'DOC';
-  if (type.includes('sheet') || type.includes('excel')) return 'XLS';
-  if (type.includes('zip') || type.includes('compressed')) return 'ZIP';
-  return 'FILE';
-}
-
-// Splits a plain-text email body into what the sender actually wrote and
-// the quoted history underneath it (Gmail/Apple Mail "On ... wrote:" chains,
-// Outlook "-----Original Message-----" blocks, and lines starting with ">").
-function splitEmailBody(text) {
-  if (!text) return { main: '', quoted: '' };
-
-  const lines = text.replace(/\r\n/g, '\n').split('\n');
-  let splitIndex = -1;
-
-  for (let i = 0; i < lines.length; i += 1) {
-    const trimmed = lines[i].trim();
-
-    if (/^On .{5,120} wrote:$/.test(trimmed)) {
-      splitIndex = i;
-      break;
-    }
-    if (/^-{2,}\s*Original Message\s*-{2,}$/i.test(trimmed)) {
-      splitIndex = i;
-      break;
-    }
-    if (/^From:\s.+/.test(trimmed) && lines[i + 1] && /^Sent:\s.+/.test(lines[i + 1].trim())) {
-      splitIndex = i;
-      break;
-    }
-    if (trimmed.startsWith('>')) {
-      splitIndex = i;
-      break;
-    }
-  }
-
-  if (splitIndex === -1) {
-    return { main: text.trim(), quoted: '' };
-  }
-
-  return {
-    main: lines.slice(0, splitIndex).join('\n').trim(),
-    quoted: lines.slice(splitIndex).join('\n').trim(),
-  };
-}
+import { useRouter } from 'next/router';
+import Composer from '../components/Composer';
+import EmptyState from '../components/EmptyState';
+import FiltersPopover from '../components/FiltersPopover';
+import FolderRail from '../components/FolderRail';
+import MailIcon from '../components/MailIcon';
+import MailShell from '../components/MailShell';
+import MessageCard from '../components/MessageCard';
+import BulkBar from '../components/BulkBar';
+import ThreadHeader from '../components/ThreadHeader';
+import ThreadList from '../components/ThreadList';
+import useMailbox from '../hooks/useMailbox';
 
 export default function Inbox() {
-  const [emails, setEmails] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedThread, setSelectedThread] = useState(null);
-  const [replyText, setReplyText] = useState('');
-  const [cannedResponses, setCannedResponses] = useState([]);
+  const router = useRouter();
   const [currentUser, setCurrentUser] = useState('');
-  const [claimError, setClaimError] = useState('');
-  const [threadActivity, setThreadActivity] = useState([]);
-  const [sending, setSending] = useState(false);
+  const [railCollapsed, setRailCollapsed] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [density, setDensity] = useState('comfortable');
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [replyDraft, setReplyDraft] = useState({ text: '', html: '', cc: '', bcc: '', mode: 'reply', attachments: [] });
+  const [replyDraftId, setReplyDraftId] = useState(null);
   const [replyError, setReplyError] = useState('');
-  const [search, setSearch] = useState('');
-  const [filters, setFilters] = useState({ dateFrom: '', dateTo: '', senderDomain: '', read: '' });
-  const [selectedMailbox, setSelectedMailbox] = useState('all');
-  const [selectedFolder, setSelectedFolder] = useState('inbox');
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [selectedThreadIds, setSelectedThreadIds] = useState([]);
-  const [actionError, setActionError] = useState('');
-  const [expandedMessageIds, setExpandedMessageIds] = useState([]);
-  const [hiddenThreadIds, setHiddenThreadIds] = useState([]);
-  const [unreadThreadIds, setUnreadThreadIds] = useState([]);
-
-  const load = async (activeFilters = filters, activeFolder = selectedFolder, activeSearch = search) => {
-    setLoading(true);
-    const params = new URLSearchParams();
-    if (activeFolder !== 'all' && activeFolder !== 'starred' && activeFolder !== 'sent') {
-      params.set('folder', activeFolder);
-    }
-    if (activeFolder === 'starred') params.set('starred', 'true');
-    if (activeSearch.trim()) params.set('search', activeSearch.trim());
-    if (activeFilters.dateFrom) params.set('fromDate', activeFilters.dateFrom);
-    if (activeFilters.dateTo) params.set('toDate', activeFilters.dateTo);
-    if (activeFilters.senderDomain.trim()) params.set('senderDomain', activeFilters.senderDomain.trim());
-    if (activeFilters.read) params.set('read', activeFilters.read);
-
-    const res = await fetch(`/api/emails?${params.toString()}`);
-    const data = await res.json();
-    const loadedEmails = (data.emails || []).map((email) => ({
-      ...email,
-      label: email.label || 'other',
-      mailboxAddresses: parseMailboxAddresses(email.to_address),
-      attachments: Array.isArray(email.attachments) ? email.attachments : [],
-    }));
-    setEmails(loadedEmails);
-    setUnreadThreadIds([...new Set(loadedEmails.filter((email) => email.direction === 'inbound' && !email.read).map((email) => email.thread_id))]);
-    setLoading(false);
-  };
+  const [sending, setSending] = useState(false);
+  const [noteText, setNoteText] = useState('');
+  const selectedThread = typeof router.query.thread === 'string' ? router.query.thread : null;
+  const mailbox = useMailbox({
+    mode: 'inbox',
+    currentUser,
+    selectedThread,
+    onSelectedThreadChange: (threadId) => router.push(threadId ? { pathname: '/inbox', query: { thread: threadId } } : '/inbox', undefined, { shallow: true }),
+  });
 
   useEffect(() => {
     try {
       const session = JSON.parse(localStorage.getItem('email_session') || '{}');
       setCurrentUser(session.email || '');
+      setRailCollapsed(localStorage.getItem('mail_rail_collapsed') === 'true');
     } catch (error) {
       setCurrentUser('');
     }
-
-    load();
-
-    fetch('/api/canned-responses')
-      .then((res) => (res.ok ? res.json() : { responses: [] }))
-      .then((data) => setCannedResponses(Array.isArray(data.responses) ? data.responses : []))
-      .catch(() => setCannedResponses([]));
   }, []);
-
-  const handleApplyFilters = () => {
-    load(filters);
-  };
-
-  const handleClearFilters = () => {
-    const cleared = { dateFrom: '', dateTo: '', senderDomain: '', read: '' };
-    setFilters(cleared);
-    setSearch('');
-    load(cleared);
-  };
-
-  const mailboxGroups = useMemo(() => {
-    const addresses = [...new Set(emails.flatMap((email) => email.mailboxAddresses || parseMailboxAddresses(email.to_address)))];
-    return addresses
-      .map((address) => {
-        return {
-          value: address,
-          label: address,
-        };
-      })
-      .sort((a, b) => a.label.localeCompare(b.label));
-  }, [emails]);
-
-  const visibleThreads = useMemo(() => {
-    const map = new Map();
-    for (const email of emails) {
-      if (!map.has(email.thread_id)) map.set(email.thread_id, []);
-      map.get(email.thread_id).push(email);
-    }
-
-    const grouped = [...map.values()]
-      .filter((thread) => !hiddenThreadIds.includes(thread[0].thread_id))
-      .map((msgs) => msgs.sort((a, b) => new Date(a.received_at) - new Date(b.received_at)))
-      .sort((a, b) => new Date(b[b.length - 1].received_at) - new Date(a[a.length - 1].received_at));
-
-    const filteredByFolder = selectedFolder === 'all'
-      ? grouped
-      : selectedFolder === 'starred'
-        ? grouped.filter((thread) => thread.some((msg) => msg.starred))
-        : grouped.filter((thread) => (thread[0].folder || (thread[0].direction === 'outbound' ? 'sent' : 'inbox')) === selectedFolder);
-
-    const filteredByMailbox = selectedMailbox === 'all'
-      ? filteredByFolder
-      : filteredByFolder.filter((thread) => {
-          const recipients = [...new Set(thread.flatMap((msg) => msg.mailboxAddresses || parseMailboxAddresses(msg.to_address)))];
-          return recipients.includes(selectedMailbox);
-        });
-
-    const normalized = search.trim().toLowerCase();
-    if (!normalized) return filteredByMailbox;
-
-    return filteredByMailbox.filter((thread) => {
-      const text = thread
-        .map((msg) => `${msg.from_address || ''} ${msg.subject || ''} ${msg.text_body || ''} ${msg.to_address || ''}`)
-        .join(' ')
-        .toLowerCase();
-      return text.includes(normalized);
-    });
-  }, [emails, hiddenThreadIds, search, selectedFolder, selectedMailbox]);
-
-  useEffect(() => {
-    if (selectedMailbox !== 'all' && !mailboxGroups.some((item) => item.value === selectedMailbox)) {
-      setSelectedMailbox('all');
-    }
-  }, [mailboxGroups, selectedMailbox]);
-
-  useEffect(() => {
-    if (selectedThread && !visibleThreads.some((thread) => thread[0].thread_id === selectedThread)) {
-      setSelectedThread(null);
-    }
-  }, [selectedThread, visibleThreads]);
 
   useEffect(() => {
     if (!selectedThread) {
-      setThreadActivity([]);
+      setReplyDraft({ text: '', html: '', cc: '', bcc: '', mode: 'reply', attachments: [] });
+      setReplyDraftId(null);
       return;
     }
-
-    fetch(`/api/threads/${selectedThread}/activity`)
-      .then((res) => (res.ok ? res.json() : { activity: [] }))
-      .then((data) => setThreadActivity(Array.isArray(data.activity) ? data.activity : []))
-      .catch(() => setThreadActivity([]));
+    fetch(`/api/drafts?threadId=${encodeURIComponent(selectedThread)}`)
+      .then((response) => response.ok ? response.json() : { drafts: [] })
+      .then((data) => {
+        const draft = data.drafts?.find((item) => item.kind === 'reply' || item.kind === 'forward');
+        if (draft) {
+          setReplyDraftId(draft.id);
+          setReplyDraft({ text: draft.text_body || '', html: draft.html_body || '', cc: draft.cc || '', bcc: draft.bcc || '', mode: draft.kind, attachments: draft.attachments || [] });
+        } else {
+          setReplyDraftId(null);
+          setReplyDraft({ text: '', html: '', cc: '', bcc: '', mode: 'reply', attachments: [] });
+        }
+      })
+      .catch(() => {});
   }, [selectedThread]);
 
-  const activeThread = visibleThreads.find((thread) => thread[0].thread_id === selectedThread);
-  const lastInbound = activeThread ? [...activeThread].reverse().find((msg) => msg.direction === 'inbound') : null;
-
-  const markThreadRead = (threadId) => {
-    setUnreadThreadIds((current) => current.filter((id) => id !== threadId));
-  };
-
-  const handleSelectThread = async (threadId) => {
-    setSelectedThread(threadId);
-    setClaimError('');
-    markThreadRead(threadId);
-    await fetch(`/api/emails/${threadId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ read: true }),
-    });
-
-    if (!currentUser) {
-      setClaimError('You must be signed in to claim this thread.');
-      return;
-    }
-
-    const claimResponse = await fetch('/api/threads', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ threadId, claim: true, claimedBy: currentUser }),
-    });
-
-    if (!claimResponse.ok) {
-      const data = await claimResponse.json().catch(() => ({}));
-      setClaimError(data.error || 'This thread is already claimed by another staff member.');
-      return;
-    }
-
-    setIsSidebarOpen(false);
-    await load();
-  };
-
-  const handleReleaseThread = async () => {
-    if (!selectedThread || !currentUser) return;
-    const response = await fetch('/api/threads', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ threadId: selectedThread, claim: false, claimedBy: currentUser }),
-    });
-    if (response.ok) {
-      setClaimError('');
-      await load();
-    }
-  };
-
-  const handleArchiveThread = (threadId) => {
-    handleBulkAction('archive', [threadId]);
-  };
-
-  const handleBulkAction = async (action, ids = selectedThreadIds) => {
-    if (!ids.length) return;
-    setActionError('');
-    const res = await fetch('/api/emails/bulk', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ threadIds: ids, action }),
-    });
-
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setActionError(data.error || 'Unable to update selected messages.');
-      return;
-    }
-
-    setSelectedThreadIds((current) => current.filter((id) => !ids.includes(id)));
-    await load();
-  };
-
-  const handleBulkDelete = async () => {
-    if (!selectedThreadIds.length) return;
-    if (typeof window !== 'undefined' && !window.confirm(`Delete ${selectedThreadIds.length} conversation(s) permanently?`)) return;
-
-    const res = await fetch('/api/emails/bulk', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ threadIds: selectedThreadIds, action: 'delete' }),
-    });
-
-    if (!res.ok) {
-      setActionError('Unable to delete selected messages.');
-      return;
-    }
-
-    setSelectedThreadIds([]);
-    setSelectedThread(null);
-    await load();
-  };
-
-  const toggleThreadSelection = (threadId) => {
-    setSelectedThreadIds((current) => current.includes(threadId) ? current.filter((id) => id !== threadId) : [...current, threadId]);
-  };
-
-  const toggleThreadStar = async (threadId, starred) => {
-    await fetch(`/api/emails/${threadId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ starred: !starred }),
-    });
-    await load();
-  };
-
-  const handleDeleteThread = async (threadId) => {
-    if (typeof window !== 'undefined' && !window.confirm('Delete this conversation permanently?')) return;
-
-    const res = await fetch(`/api/emails/${threadId}`, { method: 'DELETE' });
-    if (!res.ok) {
-      setReplyError('Unable to delete this conversation.');
-      return;
-    }
-
-    setHiddenThreadIds((current) => [...current, threadId]);
-    setUnreadThreadIds((current) => current.filter((id) => id !== threadId));
-    if (selectedThread === threadId) setSelectedThread(null);
-    await load();
-  };
-
-  const handleReply = async (e) => {
-    e.preventDefault();
-    const trimmedReply = replyText.trim();
-
-    if (!lastInbound) {
-      setReplyError('Select a message to reply to.');
-      return;
-    }
-
-    if (!trimmedReply) {
-      setReplyError('Reply cannot be empty.');
-      return;
-    }
-
-    setReplyError('');
-    setSending(true);
-
-    try {
-      const res = await fetch('/api/reply', {
+  useEffect(() => {
+    if (!selectedThread || (!replyDraft.text && !replyDraft.cc && !replyDraft.bcc)) return undefined;
+    const timeout = setTimeout(() => {
+      fetch('/api/drafts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          threadId: lastInbound.thread_id,
-          to: lastInbound.from_address,
-          from: lastInbound.to_address,
-          subject: lastInbound.subject,
-          message: trimmedReply,
-          inReplyToMessageId: lastInbound.message_id,
-          claimedBy: currentUser,
-        }),
+        body: JSON.stringify({ id: replyDraftId, kind: replyDraft.mode, threadId: selectedThread, message: replyDraft.text, html: replyDraft.html, cc: replyDraft.cc, bcc: replyDraft.bcc, attachments: replyDraft.attachments }),
+      }).then((response) => response.ok ? response.json() : null).then((data) => {
+        if (data?.draft?.id) setReplyDraftId(data.draft.id);
       });
+    }, 1500);
+    return () => clearTimeout(timeout);
+  }, [replyDraft, replyDraftId, selectedThread]);
 
-      const payload = await res.json();
-      if (!res.ok) {
-        setReplyError(payload.error || 'Unable to send the reply.');
-        return;
-      }
+  useEffect(() => {
+    const handleKeyboard = (event) => {
+      if (event.target.matches('input, textarea, select, [contenteditable="true"]')) return;
+      const ids = mailbox.threads.map((thread) => thread[0].thread_id);
+      if (event.key === 'Escape') { setFiltersOpen(false); setDrawerOpen(false); if (selectedThread) mailbox.setSelectedThread(null); }
+      if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+      event.preventDefault();
+      const currentIndex = ids.indexOf(selectedThread);
+      const nextIndex = event.key === 'ArrowDown' ? Math.min(currentIndex + 1, ids.length - 1) : Math.max(currentIndex - 1, 0);
+      if (ids[nextIndex]) mailbox.selectThread(ids[nextIndex]);
+    };
+    window.addEventListener('keydown', handleKeyboard);
+    return () => window.removeEventListener('keydown', handleKeyboard);
+  }, [mailbox, selectedThread]);
 
-      setReplyText('');
-      await load();
-      if (selectedThread) markThreadRead(selectedThread);
-    } catch (error) {
-      setReplyError('Network error. Please try again.');
-    } finally {
-      setSending(false);
+  const folders = useMemo(() => [
+    { value: 'inbox', label: 'Inbox', count: mailbox.unreadCount },
+    { value: 'starred', label: 'Starred' },
+    { value: 'sent', label: 'Sent' },
+    { value: 'drafts', label: 'Drafts' },
+    { value: 'archive', label: 'Archive' },
+    { value: 'spam', label: 'Spam' },
+    { value: 'all', label: 'All mail' },
+  ], [mailbox.unreadCount]);
+
+  const activeMessage = mailbox.activeThread ? [...mailbox.activeThread].reverse().find((message) => message.direction === 'inbound') : null;
+
+  const handleRailToggle = () => setRailCollapsed((value) => {
+    const next = !value;
+    try { localStorage.setItem('mail_rail_collapsed', String(next)); } catch (error) {}
+    return next;
+  });
+
+  const handleFiltersApply = () => mailbox.load({ filters: mailbox.filters });
+  const handleFiltersClear = () => {
+    const next = { dateFrom: '', dateTo: '', senderDomain: '', read: '' };
+    mailbox.setFilters(next);
+    mailbox.setSearch('');
+    mailbox.load({ filters: next });
+  };
+  const handleSelectAll = () => mailbox.setSelectedThreadIds(mailbox.selectedThreadIds.length === mailbox.threads.length ? [] : mailbox.threads.map((thread) => thread[0].thread_id));
+  const handleThreadAction = (action) => {
+    if (action === 'delete') mailbox.deleteThread(selectedThread);
+    if (action === 'archive') mailbox.bulkAction('archive', [selectedThread]);
+    if (action === 'release') mailbox.releaseThread();
+  };
+
+  const handleReply = async ({ message, html, cc, bcc }) => {
+    if (!activeMessage) return;
+    setReplyError('');
+    setSending(true);
+    const response = await fetch('/api/reply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ threadId: activeMessage.thread_id, to: activeMessage.from_address, from: activeMessage.to_address, subject: activeMessage.subject, message, html, cc, bcc, attachments: replyDraft.attachments, action: replyDraft.mode, inReplyToMessageId: activeMessage.message_id, claimedBy: currentUser }),
+    });
+    const data = await response.json();
+    if (!response.ok) setReplyError(data.error || 'Unable to send the reply.');
+    else {
+      setReplyDraft({ text: '', html: '', cc: '', bcc: '', mode: 'reply', attachments: [] });
+      setReplyDraftId(null);
+      setComposerOpen(false);
+      await mailbox.load();
     }
+    setSending(false);
   };
 
   const handleReplyAll = () => {
-    if (!activeThread) return;
-    const recipients = [...new Set(activeThread.map((msg) => msg.from_address).filter(Boolean))];
-    const names = recipients.filter((address) => address !== 'You');
-    if (!names.length) return;
-    const firstName = names[0].split('@')[0] || 'there';
-    setReplyText((current) => current || `Hi ${firstName},\n\n`);
-    setReplyError('');
+    if (!mailbox.activeThread || !activeMessage) return;
+    const recipients = [...new Set(mailbox.activeThread.map((message) => message.from_address).filter(Boolean))];
+    const firstName = activeMessage.from_address.split('@')[0] || 'there';
+    setReplyDraft((current) => ({ ...current, text: current.text || `Hi ${firstName},\n\n`, cc: recipients.filter((address) => address !== activeMessage.from_address).join(', '), mode: 'reply' }));
+    setComposerOpen(true);
   };
 
-  const toggleMessageExpand = (messageId) => {
-    setExpandedMessageIds((current) =>
-      current.includes(messageId) ? current.filter((id) => id !== messageId) : [...current, messageId]
-    );
+  const handleForward = () => {
+    const latest = mailbox.activeThread?.[mailbox.activeThread.length - 1];
+    if (!latest) return;
+    setReplyDraft({ text: `\n\n---------- Forwarded message ----------\nFrom: ${latest.from_address}\nSubject: ${latest.subject}\n\n${latest.text_body || ''}`, html: `<p><br><br>---------- Forwarded message ----------<br>From: ${escapeHtml(latest.from_address)}<br>Subject: ${escapeHtml(latest.subject)}<br><br>${escapeHtml(latest.text_body || '').replace(/\n/g, '<br>')}</p>`, cc: '', bcc: '', mode: 'forward', attachments: latest.attachments || [] });
+    setComposerOpen(true);
   };
 
-  const unreadCount = unreadThreadIds.length;
-  const folderFilters = [
-    { value: 'inbox', label: 'Inbox' },
-    { value: 'starred', label: 'Starred' },
-    { value: 'archive', label: 'Archive' },
-    { value: 'spam', label: 'Spam' },
-    { value: 'drafts', label: 'Drafts' },
-    { value: 'sent', label: 'Sent' },
-    { value: 'all', label: 'All mail' },
-  ];
+  const handleCanned = (id, setText) => {
+    const response = mailbox.cannedResponses.find((item) => item.id === id);
+    if (!response) return;
+    const variables = { customer_name: activeMessage?.from_address?.split('@')[0], agent_name: currentUser?.split('@')[0], thread_subject: mailbox.activeThread?.[0]?.subject };
+    setText(response.body.replace(/\{\{\s*(customer_name|agent_name|thread_subject)\s*\}\}/gi, (match, key) => variables[key.toLowerCase()] || match));
+  };
 
-  return (
-    <main className="mail-layout" data-sidebar-open={isSidebarOpen ? 'true' : 'false'} style={styles.main}>
-      <aside className={isSidebarOpen ? 'mail-sidebar-open' : 'mail-sidebar-closed'} style={styles.sidebar}>
-        <div style={styles.sidebarHeader}>
-          <h2 style={styles.h2}>Inbox</h2>
-          <div style={styles.headerActions}>
-            {unreadCount > 0 && <span style={styles.unreadPill}>{unreadCount} unread</span>}
-            <button style={styles.refreshBtn} onClick={load}>⟳</button>
-            <button
-              type="button"
-              className="mobile-sidebar-toggle"
-              style={styles.sidebarToggle}
-              onClick={() => setIsSidebarOpen(false)}
-              aria-label="Hide inbox list"
-            >
-              ×
-            </button>
-          </div>
-        </div>
+  const rail = <FolderRail folders={folders} mailboxes={mailbox.mailboxGroups} selectedFolder={mailbox.selectedFolder} selectedMailbox={mailbox.selectedMailbox} onFolder={(folder) => { mailbox.setSelectedFolder(folder); setDrawerOpen(false); }} onMailbox={(value) => { mailbox.setSelectedMailbox(value); setDrawerOpen(false); }} collapsed={railCollapsed} onToggle={handleRailToggle} />;
+  const list = <section className="mail-list-pane"><header className="mail-list-header">{mailbox.selectedThreadIds.length ? <BulkBar selectedCount={mailbox.selectedThreadIds.length} allSelected={mailbox.selectedThreadIds.length === mailbox.threads.length} onSelectAll={handleSelectAll} onAction={(action) => mailbox.bulkAction(action)} /> : <><div className="mail-list-tools"><button className="mail-icon-button mail-mobile-only" type="button" onClick={() => setDrawerOpen(true)} aria-label="Open folders"><MailIcon name="menu" /></button><div className="mail-search"><input className="mail-input" value={mailbox.search} onChange={(event) => mailbox.setSearch(event.target.value)} placeholder="Search sender, subject, or text" aria-label="Search messages" /></div><button className="mail-button" type="button" onClick={() => setFiltersOpen((value) => !value)}><MailIcon name="filter" size={15} /> Filters{mailbox.filterCount > 0 && <span className="mail-count">{mailbox.filterCount}</span>}</button><button className="mail-icon-button" type="button" onClick={() => mailbox.load()} aria-label="Refresh messages" title="Refresh"><MailIcon name="refresh" /></button></div><div className="mail-filter-tools"><span className="mail-count">{mailbox.threads.length} conversations</span><div className="mail-density"><button type="button" aria-pressed={density === 'comfortable'} onClick={() => setDensity('comfortable')}>Comfort</button><button type="button" aria-pressed={density === 'compact'} onClick={() => setDensity('compact')}>Compact</button></div></div>{filtersOpen && <FiltersPopover filters={mailbox.filters} onChange={mailbox.setFilters} onApply={handleFiltersApply} onClear={handleFiltersClear} onClose={() => setFiltersOpen(false)} />}</>}</header>{mailbox.actionError && <p className="mail-error" aria-live="polite">{mailbox.actionError}</p>}<ThreadList threads={mailbox.threads} loading={mailbox.loading} selectedThread={selectedThread} unreadThreadIds={mailbox.unreadThreadIds} selectedThreadIds={mailbox.selectedThreadIds} compact={density === 'compact'} onSelect={mailbox.selectThread} onToggleSelected={(id) => mailbox.setSelectedThreadIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id])} onStar={mailbox.starThread} onQuickAction={(action, id) => mailbox.bulkAction(action, [id])} folder={mailbox.selectedFolder} /></section>;
 
-        <div style={styles.folderWrap}>
-          {folderFilters.map((folder) => (
-            <button
-              key={folder.value}
-              type="button"
-              onClick={() => {
-                setSelectedFolder(folder.value);
-                load(filters, folder.value, search);
-              }}
-              style={{ ...styles.filterButton, ...(selectedFolder === folder.value ? styles.filterButtonActive : {}) }}
-            >
-              {folder.label}
-            </button>
-          ))}
-        </div>
+  const reading = mailbox.activeThread ? <section className="mail-reading-pane"><ThreadHeader subject={mailbox.activeThread[0].subject} label={mailbox.activeThread[0].label} status={mailbox.activeThread[0].status} claimedBy={mailbox.activeThread[0].claimed_by} activityCount={mailbox.threadActivity.length} onBack={() => mailbox.setSelectedThread(null)} onAction={handleThreadAction} onStatusChange={mailbox.updateStatus} canRelease={mailbox.activeThread[0].claimed_by === currentUser} /><div className="mail-thread-body"><details className="mail-activity"><summary>Activity ({mailbox.threadActivity.length})</summary><div className="mail-activity-list">{mailbox.threadActivity.map((activity) => <div className="mail-activity-row" key={activity.id}><span>{activity.actor_email} · {activity.activity_type}</span><time>{new Date(activity.created_at).toLocaleString()}</time></div>)}</div></details>{mailbox.threadNotes.length > 0 && <details className="mail-activity"><summary>Private notes ({mailbox.threadNotes.length})</summary><div className="mail-activity-list">{mailbox.threadNotes.map((note) => <div className="mail-activity-row" key={note.id}><span>{note.body}</span><time>{new Date(note.created_at).toLocaleString()}</time></div>)}</div></details>}{mailbox.activeThread.map((message, index) => <MessageCard key={message.id} message={message} isNewest={index === mailbox.activeThread.length - 1} splitBody={splitEmailBody} attachmentHref={(id, attachmentIndex, download) => `/api/emails/${id}/attachment?index=${attachmentIndex}${download ? '&download=1' : ''}`} />)}<form className="mail-note-form" onSubmit={(event) => { event.preventDefault(); mailbox.addNote(noteText); setNoteText(''); }}><input className="mail-input" value={noteText} onChange={(event) => setNoteText(event.target.value)} placeholder="Private note or @mention" aria-label="Private note" /><button className="mail-button" type="submit">Add note</button></form></div><div className="mail-composer"><div className="mail-composer-row"><button className="mail-button" type="button" onClick={handleReplyAll} disabled={!activeMessage}>Reply all</button><button className="mail-button" type="button" onClick={handleForward}>Forward</button></div><Composer open={composerOpen} onOpen={() => setComposerOpen((value) => !value)} onSubmit={handleReply} sending={sending} error={replyError || mailbox.claimError} cannedResponses={mailbox.cannedResponses} onCannedResponse={handleCanned} draft={replyDraft} onDraftChange={setReplyDraft} /></div></section> : <section className="mail-reading-pane"><EmptyState title="Select a conversation" message="Choose a thread from the list to read and reply." icon="mail" /></section>;
 
-        <div style={styles.filterWrap}>
-          <button
-            type="button"
-            onClick={() => setSelectedMailbox('all')}
-            style={{
-              ...styles.filterButton,
-              ...(selectedMailbox === 'all' ? styles.filterButtonActive : {}),
-            }}
-          >
-            All inbox
-          </button>
-          {mailboxGroups.map((mailbox) => (
-            <button
-              key={mailbox.value}
-              type="button"
-              onClick={() => setSelectedMailbox(mailbox.value)}
-              style={{
-                ...styles.filterButton,
-                ...(selectedMailbox === mailbox.value ? styles.filterButtonActive : {}),
-              }}
-            >
-              {mailbox.label}
-            </button>
-          ))}
-        </div>
-
-        <div style={styles.searchWrap}>
-          <input
-            style={styles.searchInput}
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search sender, subject, or text"
-          />
-        </div>
-
-        <details style={styles.filterPanel}>
-          <summary style={styles.filterSummary}>Advanced filters</summary>
-          <div style={styles.filterFields}>
-            <label style={styles.filterLabel}>
-              From
-              <input
-                type="date"
-                style={styles.filterInput}
-                value={filters.dateFrom}
-                onChange={(event) => setFilters((current) => ({ ...current, dateFrom: event.target.value }))}
-              />
-            </label>
-            <label style={styles.filterLabel}>
-              To
-              <input
-                type="date"
-                style={styles.filterInput}
-                value={filters.dateTo}
-                onChange={(event) => setFilters((current) => ({ ...current, dateTo: event.target.value }))}
-              />
-            </label>
-            <label style={styles.filterLabel}>
-              Sender domain
-              <input
-                type="text"
-                style={styles.filterInput}
-                value={filters.senderDomain}
-                onChange={(event) => setFilters((current) => ({ ...current, senderDomain: event.target.value }))}
-                placeholder="example.com"
-              />
-            </label>
-            <label style={styles.filterLabel}>
-              Read status
-              <select
-                style={styles.filterInput}
-                value={filters.read}
-                onChange={(event) => setFilters((current) => ({ ...current, read: event.target.value }))}
-              >
-                <option value="">All messages</option>
-                <option value="false">Unread</option>
-                <option value="true">Read</option>
-              </select>
-            </label>
-          </div>
-          <div style={styles.filterActions}>
-            <button type="button" style={styles.bulkButton} onClick={handleApplyFilters}>Apply filters</button>
-            <button type="button" style={styles.secondaryBtn} onClick={handleClearFilters}>Clear</button>
-          </div>
-        </details>
-
-        {selectedThreadIds.length > 0 && (
-          <div style={styles.bulkToolbar}>
-            <strong>{selectedThreadIds.length} selected</strong>
-            <button type="button" style={styles.bulkButton} onClick={() => handleBulkAction('read')}>Read</button>
-            <button type="button" style={styles.bulkButton} onClick={() => handleBulkAction('star')}>Star</button>
-            <button type="button" style={styles.bulkButton} onClick={() => handleBulkAction('archive')}>Archive</button>
-            <button type="button" style={styles.bulkButton} onClick={() => handleBulkAction('spam')}>Spam</button>
-            <button type="button" style={styles.bulkDeleteButton} onClick={handleBulkDelete}>Delete</button>
-          </div>
-        )}
-        {actionError && <p style={styles.actionError}>{actionError}</p>}
-
-        {loading ? (
-          <div style={styles.skeletonList}>
-            {[1, 2, 3].map((item) => (
-              <div key={item} style={styles.skeletonRow} />
-            ))}
-          </div>
-        ) : visibleThreads.length === 0 ? (
-          <div style={styles.emptyState}>
-            <div style={styles.emptyTitle}>No messages in this inbox</div>
-            <p style={styles.emptyText}>Try another mailbox group or clear your search.</p>
-            <button type="button" style={styles.emptyAction} onClick={() => { setSearch(''); setSelectedMailbox('all'); setSelectedFolder('all'); }}>
-              Show all inboxes
-            </button>
-          </div>
-        ) : null}
-
-        {visibleThreads.map((thread) => {
-          const latest = thread[thread.length - 1];
-          const latestInbound = [...thread].reverse().find((message) => message.direction === 'inbound') || latest;
-          const isUnread = latest && latest.direction === 'inbound' && unreadThreadIds.includes(thread[0].thread_id);
-          const preview = (splitEmailBody(latest?.text_body).main || latest?.subject || '').replace(/\s+/g, ' ').trim();
-
-          const isStarred = thread.some((msg) => msg.starred);
-          const label = latest.label || thread.find((msg) => msg.label)?.label || 'other';
-
-          return (
-            <div
-              key={thread[0].thread_id}
-              onClick={() => handleSelectThread(thread[0].thread_id)}
-              onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') handleSelectThread(thread[0].thread_id); }}
-              role="button"
-              tabIndex={0}
-              style={{
-                ...styles.threadItem,
-                background: selectedThread === thread[0].thread_id ? '#1e293b' : 'transparent',
-                borderLeft: isUnread ? '3px solid #22c55e' : '3px solid transparent',
-              }}
-            >
-              <div style={styles.threadTopRow}>
-                <input
-                  type="checkbox"
-                  checked={selectedThreadIds.includes(thread[0].thread_id)}
-                  onChange={() => toggleThreadSelection(thread[0].thread_id)}
-                  onClick={(event) => event.stopPropagation()}
-                  aria-label={`Select ${latest.subject || 'conversation'}`}
-                />
-                <div style={styles.threadFrom}>{latestInbound.from_address || 'Unknown sender'}</div>
-                <span style={styles.labelBadge}>{label}</span>
-                {isUnread && <span style={styles.unreadBadge}>New</span>}
-                <button type="button" style={styles.starButton} onClick={(event) => { event.stopPropagation(); toggleThreadStar(thread[0].thread_id, isStarred); }} aria-label={isStarred ? 'Unstar conversation' : 'Star conversation'}>
-                  {isStarred ? '★' : '☆'}
-                </button>
-              </div>
-              <div style={styles.threadPreview}>{preview.slice(0, 90)}{preview.length > 90 ? '…' : ''}</div>
-              <div style={styles.threadDateRow}>
-                <span style={styles.threadDate}>{new Date(latest.received_at).toLocaleString()}</span>
-                <button
-                  type="button"
-                  style={styles.archiveBtn}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleArchiveThread(thread[0].thread_id);
-                  }}
-                >
-                  Archive
-                </button>
-              </div>
-            </div>
-          );
-        })}
-      </aside>
-
-      <section className="mail-conversation" style={styles.conversation}>
-        <button
-          type="button"
-          className="mobile-sidebar-toggle mobile-inbox-toggle"
-          style={styles.inboxToggle}
-          onClick={() => setIsSidebarOpen(true)}
-          aria-label="Show inbox list"
-        >
-          ‹ Inbox
-        </button>
-        {!activeThread && <p style={styles.dim}>Select a conversation.</p>}
-
-        {activeThread && (
-          <>
-            <h3 style={styles.threadTitle}>{activeThread[0].subject || '(no subject)'}</h3>
-            <div style={styles.claimBanner}>
-              <span>{activeThread[0].claimed_by ? `Claimed by ${activeThread[0].claimed_by}` : 'Unclaimed thread'}</span>
-              {activeThread[0].claimed_by === currentUser && (
-                <button type="button" style={styles.claimButton} onClick={handleReleaseThread}>Release</button>
-              )}
-            </div>
-            {claimError && <p style={styles.claimError}>{claimError}</p>}
-            {threadActivity.length > 0 && (
-              <div style={styles.activityPanel}>
-                <strong>Activity</strong>
-                {threadActivity.map((activity) => (
-                  <div key={activity.id} style={styles.activityRow}>
-                    <span>{activity.actor_email} sent a reply</span>
-                    <time dateTime={activity.created_at} style={styles.activityTime}>{new Date(activity.created_at).toLocaleString()}</time>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div style={styles.threadToolbar}>
-              <button type="button" style={styles.secondaryBtn} onClick={() => handleDeleteThread(activeThread[0].thread_id)}>
-                Delete thread
-              </button>
-            </div>
-            <div style={styles.messages}>
-              {activeThread.map((msg) => {
-                const isExpanded = expandedMessageIds.includes(msg.id);
-                const { main } = splitEmailBody(msg.text_body);
-                const content = main || '(no message content)';
-                const body = content.length > 300 && !isExpanded ? `${content.slice(0, 300)}…` : content;
-                const attachments = Array.isArray(msg.attachments) ? msg.attachments : [];
-
-                return (
-                  <div
-                    key={msg.id}
-                    style={{
-                      ...styles.messageBubble,
-                      alignSelf: msg.direction === 'outbound' ? 'flex-end' : 'flex-start',
-                      background: msg.direction === 'outbound' ? '#173b5f' : '#17283b',
-                      color: '#e5eef8',
-                    }}
-                  >
-                    <div style={styles.messageMeta}>
-                      {msg.direction === 'outbound' ? 'You' : msg.from_address} ·{' '}
-                      {new Date(msg.received_at).toLocaleString()}
-                    </div>
-                    <div style={styles.messageBody}>{body}</div>
-                    {attachments.length > 0 && (
-                      <div style={styles.attachmentList}>
-                        {attachments.map((attachment, index) => (
-                          <div key={`${attachment.filename || attachment.name || 'file'}-${index}`} style={styles.attachmentItem}>
-                            {String(attachment.mimeType || attachment.contentType || '').startsWith('image/') && (attachment.path || attachment.content) && (
-                              <img src={`/api/emails/${msg.id}/attachment?index=${index}`} alt={attachment.filename || attachment.name || 'Attachment'} style={styles.attachmentPreview} />
-                            )}
-                            <span style={styles.fileIcon}>{getFileIcon(attachment)}</span>
-                            <span>{attachment.filename || attachment.name || 'Attachment'}</span>
-                            <a href={`/api/emails/${msg.id}/attachment?index=${index}`} target="_blank" rel="noreferrer" style={styles.attachmentLink}>Open</a>
-                            {(attachment.path || attachment.content) && <a href={`/api/emails/${msg.id}/attachment?index=${index}&download=1`} style={styles.downloadLink}>Download</a>}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {content.length > 300 && (
-                      <button type="button" style={styles.expandBtn} onClick={() => toggleMessageExpand(msg.id)}>
-                        {isExpanded ? 'Show less' : 'Show more'}
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            <div style={styles.replyHeader}>
-              <strong>Reply to:</strong> {lastInbound?.from_address || 'selected sender'}
-            </div>
-
-            <div style={styles.replyActions}>
-              <button type="button" style={styles.secondaryBtn} onClick={handleReplyAll}>
-                Reply all
-              </button>
-            </div>
-
-            {cannedResponses.length > 0 && (
-              <label style={styles.templateLabel}>
-                Canned response
-                <select
-                  style={styles.templateSelect}
-                  defaultValue=""
-                  onChange={(event) => {
-                    const response = cannedResponses.find((item) => item.id === event.target.value);
-                    if (response) setReplyText(response.body);
-                    event.target.value = '';
-                  }}
-                >
-                  <option value="">Choose a template...</option>
-                  {cannedResponses.map((response) => (
-                    <option key={response.id} value={response.id}>
-                      {response.title}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-
-            <form onSubmit={handleReply} style={styles.replyForm}>
-              <textarea
-                style={styles.textarea}
-                placeholder="Write a reply…"
-                value={replyText}
-                onChange={(e) => {
-                  setReplyText(e.target.value);
-                  if (replyError) setReplyError('');
-                }}
-              />
-              <button style={styles.sendBtn} type="submit" disabled={sending || !replyText.trim()}>
-                {sending ? 'Sending…' : 'Reply'}
-              </button>
-            </form>
-
-            {replyError && <p style={styles.replyError}>{replyError}</p>}
-          </>
-        )}
-      </section>
-    </main>
-  );
+  return <MailShell collapsed={railCollapsed} drawerOpen={drawerOpen} threadOpen={Boolean(selectedThread)} onMenu={() => setDrawerOpen((value) => !value)} onCompose={() => router.push('/')} rail={rail} list={list} reading={reading} />;
 }
 
-const styles = {
-  main: { display: 'flex', minHeight: 'calc(100vh - 68px)', height: 'calc(100vh - 68px)', background: '#07111f', fontFamily: 'system-ui, -apple-system, sans-serif' },
-  sidebar: {
-    width: 320,
-    borderRight: '1px solid #1e293b',
-    background: '#0b1220',
-    color: '#e2e8f0',
-    display: 'flex',
-    flexDirection: 'column',
-    overflowY: 'auto',
-  },
-  sidebarHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: '16px 16px 8px',
-    gap: 12,
-  },
-  headerActions: { display: 'flex', alignItems: 'center', gap: 8 },
-  unreadPill: {
-    background: '#dcfce7',
-    color: '#166534',
-    borderRadius: 999,
-    padding: '3px 8px',
-    fontSize: 10,
-    fontWeight: 700,
-  },
-  h2: { margin: 0, fontSize: 18 },
-  folderWrap: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: 8,
-    padding: '0 16px 12px',
-    borderBottom: '1px solid #1e293b',
-  },
-  filterWrap: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: 8,
-    padding: '0 16px 12px',
-  },
-  bulkToolbar: {
-    display: 'flex',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 6,
-    padding: '0 16px 12px',
-    color: '#cbd5e1',
-    fontSize: 11,
-  },
-  bulkButton: {
-    background: '#17283b',
-    border: '1px solid #36536e',
-    color: '#d7e5f2',
-    borderRadius: 6,
-    padding: '5px 7px',
-    cursor: 'pointer',
-    fontSize: 11,
-  },
-  bulkDeleteButton: {
-    background: '#7f1d1d',
-    border: '1px solid #b91c1c',
-    color: '#fee2e2',
-    borderRadius: 6,
-    padding: '5px 7px',
-    cursor: 'pointer',
-    fontSize: 11,
-  },
-  actionError: { color: '#fca5a5', padding: '0 16px', fontSize: 12 },
-  filterButton: {
-    background: '#111827',
-    border: '1px solid #334155',
-    color: '#cbd5e1',
-    borderRadius: 999,
-    padding: '6px 10px',
-    fontSize: 11,
-    fontWeight: 600,
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
-  },
-  filterButtonActive: {
-    background: '#2563eb',
-    borderColor: '#2563eb',
-    color: '#eff6ff',
-  },
-  searchWrap: { padding: '0 16px 12px' },
-  filterPanel: {
-    margin: '0 16px 12px',
-    border: '1px solid #29415b',
-    borderRadius: 8,
-    padding: '8px 10px',
-    background: '#0d1a2a',
-  },
-  filterSummary: { color: '#cbd5e1', cursor: 'pointer', fontSize: 12, fontWeight: 700 },
-  filterFields: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 },
-  filterLabel: { display: 'flex', flexDirection: 'column', gap: 4, color: '#94a3b8', fontSize: 10, fontWeight: 600 },
-  filterInput: {
-    width: '100%',
-    minWidth: 0,
-    padding: '7px 8px',
-    borderRadius: 6,
-    border: '1px solid #36536e',
-    background: '#111827',
-    color: '#e2e8f0',
-    fontSize: 12,
-  },
-  filterActions: { display: 'flex', gap: 8, marginTop: 10 },
-  searchInput: {
-    width: '100%',
-    boxSizing: 'border-box',
-    padding: '10px 12px',
-    borderRadius: 8,
-    border: '1px solid #334155',
-    background: '#111827',
-    color: '#e2e8f0',
-    fontSize: 14,
-  },
-  skeletonList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 12,
-    padding: '0 16px 16px',
-  },
-  skeletonRow: {
-    height: 72,
-    borderRadius: 12,
-    background: 'linear-gradient(90deg, rgba(51,65,85,0.7) 25%, rgba(30,41,59,0.9) 50%, rgba(51,65,85,0.7) 75%)',
-    backgroundSize: '200% 100%',
-    animation: 'pulse 1.2s ease-in-out infinite',
-  },
-  emptyState: {
-    padding: '24px 16px',
-    color: '#cbd5e1',
-  },
-  emptyTitle: {
-    fontSize: 16,
-    fontWeight: 700,
-    marginBottom: 6,
-  },
-  emptyText: {
-    margin: '0 0 12px',
-    color: '#94a3b8',
-    fontSize: 13,
-  },
-  emptyAction: {
-    background: '#2563eb',
-    border: 'none',
-    borderRadius: 8,
-    color: '#eff6ff',
-    padding: '8px 12px',
-    cursor: 'pointer',
-    fontWeight: 700,
-  },
-  refreshBtn: {
-    background: 'none',
-    border: '1px solid #334155',
-    color: '#e2e8f0',
-    borderRadius: 6,
-    padding: '4px 8px',
-    cursor: 'pointer',
-  },
-  dim: { color: '#64748b', padding: '0 16px', fontSize: 14 },
-  threadItem: {
-    display: 'block',
-    width: '100%',
-    textAlign: 'left',
-    padding: '12px 16px',
-    border: 'none',
-    borderBottom: '1px solid #1e293b',
-    cursor: 'pointer',
-    color: 'inherit',
-  },
-  threadTopRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  starButton: {
-    background: 'transparent',
-    border: 'none',
-    color: '#fbbf24',
-    fontSize: 18,
-    lineHeight: 1,
-    padding: 0,
-    cursor: 'pointer',
-  },
-  threadFrom: { fontSize: 13, fontWeight: 600, flex: 1 },
-  labelBadge: {
-    background: '#1d4ed8',
-    color: '#dbeafe',
-    borderRadius: 999,
-    padding: '3px 6px',
-    fontSize: 10,
-    fontWeight: 700,
-    textTransform: 'capitalize',
-  },
-  unreadBadge: {
-    background: '#22c55e',
-    color: '#062b13',
-    fontSize: 10,
-    padding: '3px 6px',
-    borderRadius: 999,
-    fontWeight: 700,
-  },
-  threadPreview: { fontSize: 12, color: '#94a3b8', marginTop: 4, lineHeight: 1.4 },
-  threadDateRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, gap: 8 },
-  threadDate: { fontSize: 11, color: '#64748b' },
-  archiveBtn: {
-    background: 'transparent',
-    border: '1px solid #475569',
-    color: '#cbd5e1',
-    borderRadius: 6,
-    padding: '2px 6px',
-    fontSize: 10,
-    cursor: 'pointer',
-  },
-  conversation: {
-    flex: 1,
-    padding: 24,
-    display: 'flex',
-    flexDirection: 'column',
-    overflowY: 'auto',
-    minWidth: 0,
-  },
-  threadTitle: { marginTop: 0 },
-  claimBanner: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-    marginBottom: 10,
-    padding: '8px 10px',
-    borderRadius: 8,
-    background: '#132337',
-    border: '1px solid #29415b',
-    color: '#b7c7d8',
-    fontSize: 12,
-  },
-  claimButton: {
-    border: '1px solid #36536e',
-    background: '#17283b',
-    color: '#d7e5f2',
-    borderRadius: 6,
-    padding: '5px 8px',
-    cursor: 'pointer',
-    fontSize: 11,
-  },
-  claimError: { color: '#fca5a5', fontSize: 13, margin: '0 0 10px' },
-  activityPanel: {
-    marginBottom: 12,
-    padding: '9px 10px',
-    borderRadius: 8,
-    background: '#0d1a2a',
-    border: '1px solid #29415b',
-    color: '#b7c7d8',
-    fontSize: 12,
-  },
-  activityRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: 10,
-    marginTop: 7,
-    color: '#d7e5f2',
-  },
-  activityTime: { color: '#64748b', whiteSpace: 'nowrap' },
-  threadToolbar: { display: 'flex', justifyContent: 'flex-end', marginBottom: 16 },
-  messages: { display: 'flex', flexDirection: 'column', gap: 12, flex: 1, overflowY: 'auto' },
-  messageBubble: { maxWidth: '70%', padding: 12, borderRadius: 10, fontSize: 14 },
-  messageMeta: { fontSize: 11, opacity: 0.7, marginBottom: 4 },
-  messageBody: { whiteSpace: 'pre-wrap', wordBreak: 'break-word' },
-  attachmentList: { display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 },
-  attachmentItem: {
-    background: '#e2e8f0',
-    color: '#0f172a',
-    borderRadius: 8,
-    padding: '6px 8px',
-    fontSize: 11,
-    fontWeight: 600,
-    display: 'flex',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  attachmentPreview: {
-    display: 'block',
-    width: 120,
-    maxHeight: 100,
-    objectFit: 'cover',
-    borderRadius: 6,
-    flexBasis: '100%',
-  },
-  fileIcon: {
-    background: '#cbd5e1',
-    borderRadius: 4,
-    padding: '2px 4px',
-    fontSize: 9,
-    color: '#334155',
-  },
-  expandBtn: {
-    marginTop: 8,
-    background: 'transparent',
-    border: 'none',
-    color: 'inherit',
-    padding: 0,
-    fontSize: 11,
-    cursor: 'pointer',
-    opacity: 0.8,
-  },
-  replyHeader: {
-    marginTop: 16,
-    padding: '8px 10px',
-    borderRadius: 8,
-    background: '#132337',
-    border: '1px solid #29415b',
-    color: '#d7e5f2',
-    fontSize: 14,
-  },
-  replyActions: { display: 'flex', justifyContent: 'flex-end', marginTop: 8 },
-  templateLabel: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 6,
-    marginTop: 12,
-    color: '#b7c7d8',
-    fontSize: 12,
-    fontWeight: 600,
-  },
-  templateSelect: {
-    width: '100%',
-    padding: '9px 10px',
-    borderRadius: 8,
-    border: '1px solid #36536e',
-    background: '#0d1a2a',
-    color: '#e5eef8',
-    fontSize: 13,
-  },
-  secondaryBtn: {
-    border: '1px solid #36536e',
-    background: '#17283b',
-    color: '#d7e5f2',
-    borderRadius: 8,
-    padding: '8px 10px',
-    cursor: 'pointer',
-  },
-  replyForm: { display: 'flex', gap: 8, marginTop: 12 },
-  textarea: {
-    flex: 1,
-    minHeight: 60,
-    padding: 10,
-    borderRadius: 8,
-    border: '1px solid #36536e',
-    background: '#0d1a2a',
-    color: '#e5eef8',
-    fontFamily: 'inherit',
-    fontSize: 14,
-    resize: 'vertical',
-  },
-  sendBtn: {
-    padding: '0 20px',
-    borderRadius: 8,
-    border: 'none',
-    background: '#2f8fca',
-    color: '#fff',
-    fontWeight: 600,
-    cursor: 'pointer',
-  },
-  replyError: { color: '#fca5a5', fontSize: 13, marginTop: 8, marginBottom: 0 },
-  attachmentLink: { color: '#a8d8ff', textDecoration: 'none' },
-  downloadLink: { color: '#94a3b8', fontSize: 10, marginLeft: 8 },
-};
+function escapeHtml(value) { return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;'); }
+function splitEmailBody(text) {
+  if (!text) return { main: '', quoted: '' };
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  const index = lines.findIndex((line, position) => /^On .{5,120} wrote:$/.test(line.trim()) || /^-{2,}\s*Original Message\s*-{2,}$/i.test(line.trim()) || (line.trim().startsWith('>') && position > 0));
+  return index === -1 ? { main: text.trim(), quoted: '' } : { main: lines.slice(0, index).join('\n').trim(), quoted: lines.slice(index).join('\n').trim() };
+}

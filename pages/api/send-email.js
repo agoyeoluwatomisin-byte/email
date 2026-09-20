@@ -1,31 +1,14 @@
-import { Resend } from 'resend';
-import { randomUUID } from 'crypto';
 import { supabaseAdmin } from '../../lib/supabaseAdmin';
 import { requireSession } from '../../lib/auth';
-
-const resend = new Resend(process.env.RESEND_API_KEY);
+import { sendOutboundEmail } from '../../lib/sendOutbound';
+import { sanitizeEmailHtml } from '../../lib/emailContent';
+import { consumeRateLimit } from '../../lib/rateLimit';
 
 // Very simple in-memory rate limit (best-effort only - resets on cold start,
 // and won't work across multiple serverless instances). Good enough to stop
 // casual abuse; for real protection add Upstash/Redis or a captcha.
-const hits = new Map();
 const WINDOW_MS = 60_000;
 const MAX_PER_WINDOW = 5;
-
-function isRateLimited(ip) {
-  const now = Date.now();
-  for (const [key, entry] of hits) {
-    if (now - entry.start > WINDOW_MS) hits.delete(key);
-  }
-  const entry = hits.get(ip) || { count: 0, start: now };
-  if (now - entry.start > WINDOW_MS) {
-    entry.count = 0;
-    entry.start = now;
-  }
-  entry.count += 1;
-  hits.set(ip, entry);
-  return entry.count > MAX_PER_WINDOW;
-}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -33,14 +16,15 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  if (!(await requireSession(req, res))) return;
+  const session = await requireSession(req, res);
+  if (!session) return;
 
   const ip =
     req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
     req.socket?.remoteAddress ||
     'unknown';
 
-  if (isRateLimited(ip)) {
+  if (await consumeRateLimit(ip, MAX_PER_WINDOW, WINDOW_MS)) {
     return res.status(429).json({ error: 'Too many requests, slow down.' });
   }
 
@@ -103,68 +87,23 @@ export default async function handler(req, res) {
     return res.status(403).json({ error: 'One or more recipients are not allowed' });
   }
 
-  const textBody = normalizedMessage || '(empty message)';
-  const htmlBody = `<p>${escapeHtml(normalizedMessage).replace(/\n/g, '<br/>')}</p>`;
+  const { data: signature } = await supabaseAdmin.from('user_signatures').select('signature_html, signature_text').eq('user_id', session.user.id).maybeSingle();
+  const textBody = `${normalizedMessage || '(empty message)'}${signature?.signature_text ? `\n\n${signature.signature_text}` : ''}`;
+  const htmlBody = sanitizeEmailHtml(`<p>${escapeHtml(normalizedMessage).replace(/\n/g, '<br/>')}</p>${signature?.signature_html || ''}`);
 
   try {
-    const fromEmail = (process.env.RESEND_FROM_ADDRESS.match(/<(.+)>/)?.[1] || process.env.RESEND_FROM_ADDRESS).trim();
-    const messageId = `<${randomUUID()}@${fromEmail.split('@')[1] || 'localhost'}>`;
-    const { data, error } = await resend.emails.send({
-      from: process.env.RESEND_FROM_ADDRESS,
+    const result = await sendOutboundEmail({
+      userId: session.user.id,
       to: recipientList,
-      ...(ccList.length ? { cc: ccList } : {}),
-      ...(bccList.length ? { bcc: bccList } : {}),
+      cc: ccList,
+      bcc: bccList,
+      replyTo,
       subject: normalizedSubject,
       text: textBody,
       html: htmlBody,
-      ...(replyTo ? { reply_to: replyTo } : {}),
-      headers: {
-        'Message-ID': messageId,
-        'X-Entity-Ref-ID': `mail-${Date.now()}`,
-      },
-      ...(Array.isArray(attachments) && attachments.length
-        ? {
-            attachments: attachments.map((attachment) => ({
-              filename: attachment.name || 'attachment',
-              content: attachment.content || '',
-              contentType: attachment.contentType || 'application/octet-stream',
-            })),
-          }
-        : {}),
+      attachments,
     });
-
-    if (error) {
-      return res.status(502).json({ error: error.message || 'Failed to send email' });
-    }
-
-    const threadId = randomUUID();
-  await supabaseAdmin.from('threads').upsert({ thread_id: threadId }, { onConflict: 'thread_id', ignoreDuplicates: true });
-    const { error: storeError } = await supabaseAdmin.from('emails').insert({
-      thread_id: threadId,
-      direction: 'outbound',
-      message_id: messageId,
-      from_address: process.env.RESEND_FROM_ADDRESS,
-      to_address: recipientList.join(', '),
-      subject: normalizedSubject,
-      text_body: textBody,
-      html_body: htmlBody,
-      folder: 'sent',
-      attachments: Array.isArray(attachments)
-        ? attachments.slice(0, 10).map((attachment) => ({
-            name: attachment.name || 'attachment',
-            contentType: attachment.contentType || 'application/octet-stream',
-        size: attachment.size || 0,
-            content: attachment.content || '',
-          }))
-        : [],
-    });
-
-    if (storeError) {
-      console.error('Email sent but could not be stored:', storeError);
-      return res.status(502).json({ error: 'Email sent, but could not be added to Outbox.' });
-    }
-
-    return res.status(200).json({ success: true, id: data?.id });
+    return res.status(200).json({ success: true, id: result.id, messageId: result.messageId, threadId: result.threadId });
   } catch (err) {
     console.error('send-email error:', err);
     return res.status(500).json({ error: 'Unexpected server error' });

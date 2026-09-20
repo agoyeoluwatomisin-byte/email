@@ -7,6 +7,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [twoFactorCode, setTwoFactorCode] = useState('');
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -17,7 +18,7 @@ export default function LoginPage() {
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, twoFactorCode }),
       });
       const data = await response.json();
 
@@ -56,6 +57,11 @@ export default function LoginPage() {
             autoComplete="email"
             required
           />
+
+          <label className="label" style={styles.label} htmlFor="twoFactorCode">
+            Authenticator code (if enabled)
+          </label>
+          <input id="twoFactorCode" type="text" inputMode="numeric" value={twoFactorCode} onChange={(event) => setTwoFactorCode(event.target.value)} style={styles.input} autoComplete="one-time-code" maxLength={6} />
 
           <label style={styles.label} htmlFor="password">
             Password

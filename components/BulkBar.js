@@ -1,0 +1,5 @@
+import MailIcon from './MailIcon';
+
+export default function BulkBar({ selectedCount, allSelected, onSelectAll, onAction }) {
+  return <div className="mail-bulk-bar"><input type="checkbox" checked={allSelected} onChange={onSelectAll} aria-label="Select all visible threads" /><strong>{selectedCount} selected</strong><button className="mail-button" type="button" onClick={() => onAction('read')}>Read</button><button className="mail-button" type="button" onClick={() => onAction('unread')}>Unread</button><button className="mail-button" type="button" onClick={() => onAction('star')}><MailIcon name="star" size={15} /> Star</button><button className="mail-button" type="button" onClick={() => onAction('archive')}><MailIcon name="archive" size={15} /> Archive</button><button className="mail-button" type="button" onClick={() => onAction('spam')}>Spam</button><button className="mail-button mail-button-danger" type="button" onClick={() => onAction('delete')}><MailIcon name="trash" size={15} /> Delete</button></div>;
+}

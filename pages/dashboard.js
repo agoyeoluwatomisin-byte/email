@@ -13,22 +13,30 @@ export default function Dashboard() {
   });
   const [threads, setThreads] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [analytics, setAnalytics] = useState(null);
+  const [dateRange, setDateRange] = useState({ from: '', to: '' });
 
   useEffect(() => {
     const load = async () => {
       setLoading(true);
       try {
-        const [inboundRes, outboundRes, threadsRes] = await Promise.all([
+        const analyticsQuery = new URLSearchParams();
+        if (dateRange.from) analyticsQuery.set('from', `${dateRange.from}T00:00:00.000Z`);
+        if (dateRange.to) analyticsQuery.set('to', `${dateRange.to}T23:59:59.999Z`);
+        const [inboundRes, outboundRes, threadsRes, analyticsRes] = await Promise.all([
           fetch('/api/emails?direction=inbound&limit=200'),
           fetch('/api/emails?direction=outbound&limit=200'),
           fetch('/api/threads'),
+          fetch(`/api/analytics?${analyticsQuery.toString()}`),
         ]);
 
-        const [inboundData, outboundData, threadsData] = await Promise.all([
+        const [inboundData, outboundData, threadsData, analyticsData] = await Promise.all([
           inboundRes.json(),
           outboundRes.json(),
           threadsRes.json(),
+          analyticsRes.json(),
         ]);
+        setAnalytics(analyticsData);
         const inbound = inboundData.emails || [];
         const outbound = outboundData.emails || [];
         const unread = inbound.filter((email) => !email.read).length;
@@ -90,7 +98,7 @@ export default function Dashboard() {
     };
 
     load();
-  }, []);
+  }, [dateRange]);
 
   const updateThreadStatus = async (threadId, status) => {
     const response = await fetch('/api/threads', {
@@ -115,6 +123,8 @@ export default function Dashboard() {
       { label: 'Sent', value: stats.outbound, accent: '#16a34a' },
       { label: 'Unread', value: stats.unread, accent: '#f59e0b' },
       { label: 'Response rate', value: `${stats.responseRate}%`, accent: '#7c3aed' },
+      { label: 'Overdue', value: analytics?.overdueCount ?? 0, accent: '#dc2626' },
+      { label: 'CSAT average', value: analytics?.csatAverage ? analytics.csatAverage.toFixed(1) : '—', accent: '#f59e0b' },
     ],
     [stats]
   );
@@ -125,6 +135,10 @@ export default function Dashboard() {
         <div>
           <p style={styles.kicker}>Overview</p>
           <h1 style={styles.title}>Analytics dashboard</h1>
+        </div>
+        <div style={styles.dateFilters}>
+          <label>From <input type="date" value={dateRange.from} onChange={(event) => setDateRange({ ...dateRange, from: event.target.value })} /></label>
+          <label>To <input type="date" value={dateRange.to} onChange={(event) => setDateRange({ ...dateRange, to: event.target.value })} /></label>
         </div>
       </div>
 
@@ -180,6 +194,22 @@ export default function Dashboard() {
               ))}
             </div>
           </section>
+
+          {analytics && <section className="dashboard-two-column" style={styles.twoColumn}>
+            <div style={styles.card}>
+              <h2 style={styles.sectionTitle}>Volume over time</h2>
+              <VolumeChart volume={analytics.volume || {}} />
+            </div>
+            <div style={styles.card}>
+              <h2 style={styles.sectionTitle}>By label</h2>
+              <BarChart values={analytics.labels || {}} color="#60a5fa" />
+            </div>
+            <div style={styles.card}>
+              <h2 style={styles.sectionTitle}>Agent performance</h2>
+              {(analytics.agents || []).length === 0 ? <p style={styles.empty}>No replies in this range.</p> : analytics.agents.map((agent) => <div key={agent.email} style={styles.tagRow}><span>{agent.email}</span><strong>{agent.replies} replies · {agent.resolved} resolved</strong></div>)}
+              <p style={styles.chartMeta}>Median resolution: {analytics.medianResolutionMinutes ?? '—'} min · Avg first response: {analytics.averageFirstResponseMinutes ?? '—'} min</p>
+            </div>
+          </section>}
 
           <section className="dashboard-two-column" style={styles.twoColumn}>
             <div style={styles.card}>
@@ -243,6 +273,19 @@ export default function Dashboard() {
   );
 }
 
+function VolumeChart({ volume }) {
+  const values = Object.entries(volume).sort(([left], [right]) => left.localeCompare(right)).slice(-30);
+  const maximum = Math.max(...values.map(([, value]) => value), 1);
+  const points = values.map(([, value], index) => `${(index / Math.max(values.length - 1, 1)) * 100},${100 - (value / maximum) * 90}`).join(' ');
+  return <svg viewBox="0 0 100 110" role="img" aria-label="Message volume chart" style={styles.chart}><polyline points={points} fill="none" stroke="#60a5fa" strokeWidth="2" vectorEffect="non-scaling-stroke" />{values.map(([day, value], index) => <text key={day} x={`${(index / Math.max(values.length - 1, 1)) * 100}`} y="108" textAnchor="middle" fontSize="3" fill="#9fb2c6">{day.slice(5)}</text>)}<text x="2" y="8" fontSize="4" fill="#9fb2c6">{maximum}</text></svg>;
+}
+
+function BarChart({ values, color }) {
+  const entries = Object.entries(values).sort(([, left], [, right]) => right - left).slice(0, 8);
+  const maximum = Math.max(...entries.map(([, value]) => value), 1);
+  return <div style={styles.barChart}>{entries.map(([label, value]) => <div key={label} style={styles.barRow}><span style={styles.barLabel}>{label}</span><span style={styles.barTrack}><span style={{ ...styles.barFill, width: `${(value / maximum) * 100}%`, background: color }} /></span><strong>{value}</strong></div>)}</div>;
+}
+
 const styles = {
   page: {
     maxWidth: 1100,
@@ -251,6 +294,7 @@ const styles = {
     fontFamily: 'system-ui, -apple-system, sans-serif',
   },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  dateFilters: { display: 'flex', gap: 8, color: '#9fb2c6', fontSize: 12 },
   kicker: { margin: 0, color: '#6366f1', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.2, fontSize: 12 },
   title: { margin: '4px 0 0', fontSize: 32, color: '#f1f5f9' },
   grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 20 },
@@ -275,6 +319,13 @@ const styles = {
   cardLabel: { color: '#9fb2c6', fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.7 },
   cardValue: { marginTop: 12, fontSize: 32, fontWeight: 700, color: '#f1f5f9' },
   sectionTitle: { margin: '0 0 16px', color: '#f1f5f9', fontSize: 20 },
+  chart: { width: '100%', height: 170, overflow: 'visible' },
+  barChart: { display: 'flex', flexDirection: 'column', gap: 10 },
+  barRow: { display: 'grid', gridTemplateColumns: '90px 1fr 30px', gap: 8, alignItems: 'center', color: '#dbeafe', fontSize: 12 },
+  barLabel: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  barTrack: { height: 10, borderRadius: 999, background: '#1e293b', overflow: 'hidden' },
+  barFill: { display: 'block', height: '100%', borderRadius: 999 },
+  chartMeta: { color: '#9fb2c6', fontSize: 12, marginBottom: 0 },
   loadingWrap: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16 },
   loadingCard: { height: 110, borderRadius: 16, background: 'linear-gradient(90deg, #132337 25%, #1a2d42 50%, #132337 75%)', backgroundSize: '200% 100%', animation: 'pulse 1.2s ease-in-out infinite' },
   empty: { color: '#9fb2c6', margin: 0 },

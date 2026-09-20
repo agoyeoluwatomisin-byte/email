@@ -41,7 +41,7 @@ export default async function handler(req, res) {
     return res.status(200).json({ success: true, threadId: id, updates });
   }
 
-  const { error } = await supabaseAdmin.from('emails').delete().eq('thread_id', id);
+  const { error } = await supabaseAdmin.from('emails').update({ folder: 'trash', deleted_at: new Date().toISOString() }).eq('thread_id', id);
 
   if (error) {
     console.error('Failed to delete email thread:', error);

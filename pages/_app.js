@@ -10,12 +10,14 @@ export default function App({ Component, pageProps }) {
   const [isReady, setIsReady] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
     const savedTheme = localStorage.getItem('email_theme');
-    const preferredMode = savedTheme === 'light' ? false : true;
+    const preferredMode = savedTheme ? savedTheme === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
     setIsDarkMode(preferredMode);
 
     const isLoginPage = router.pathname === '/login';
@@ -36,6 +38,22 @@ export default function App({ Component, pageProps }) {
         if (!isLoginPage) router.replace('/login');
       });
   }, [router.pathname]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return undefined;
+    const loadNotifications = () => fetch('/api/notifications').then((response) => response.ok ? response.json() : { unread: 0 }).then((data) => setUnreadNotifications(data.unread || 0)).catch(() => {});
+    loadNotifications();
+    const timer = setInterval(loadNotifications, 15000);
+    return () => clearInterval(timer);
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    const handleCommand = (event) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); setIsCommandPaletteOpen((open) => !open); }
+    };
+    window.addEventListener('keydown', handleCommand);
+    return () => window.removeEventListener('keydown', handleCommand);
+  }, []);
 
   useEffect(() => {
     setIsMobileMenuOpen(false);
@@ -59,6 +77,10 @@ export default function App({ Component, pageProps }) {
     { href: '/', label: 'Send email' },
     { href: '/inbox', label: 'Inbox' },
     { href: '/outbox', label: 'Outbox' },
+    { href: '/drafts', label: 'Drafts' },
+    { href: '/settings', label: 'Settings' },
+    { href: '/contacts', label: 'Contacts' },
+    { href: '/users', label: 'Users' },
   ];
 
   const showNav = isReady && isAuthenticated && router.pathname !== '/login';
@@ -166,6 +188,9 @@ export default function App({ Component, pageProps }) {
             <button type="button" onClick={handleLogout} style={{ ...styles.themeToggle, background: theme.toggleBackground, color: theme.toggleText }}>
               Logout
             </button>
+            <button type="button" onClick={() => { if (typeof Notification !== 'undefined' && Notification.permission === 'default') Notification.requestPermission(); fetch('/api/notifications', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }).then(() => setUnreadNotifications(0)); }} style={{ ...styles.themeToggle, background: theme.toggleBackground, color: theme.toggleText }} aria-label="Mark notifications read">
+              Bell{unreadNotifications ? ` (${unreadNotifications})` : ''}
+            </button>
           </div>
         </nav>
       ) : null}
@@ -173,6 +198,7 @@ export default function App({ Component, pageProps }) {
       <div className="page-shell" style={{ ...styles.pageShell, background: theme.pageBackground }}>
         <Component {...pageProps} />
       </div>
+      {isCommandPaletteOpen && <div style={styles.paletteBackdrop} onClick={() => setIsCommandPaletteOpen(false)}><div style={styles.palette} onClick={(event) => event.stopPropagation()}><strong>Command palette</strong>{navItems.map((item) => <button key={item.href} type="button" style={styles.paletteItem} onClick={() => { setIsCommandPaletteOpen(false); router.push(item.href); }}>{item.label}</button>)}</div></div>}
     </>
   );
 }
@@ -224,6 +250,9 @@ const styles = {
     fontWeight: 700,
     cursor: 'pointer',
   },
+  paletteBackdrop: { position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(2, 6, 23, 0.65)', display: 'grid', placeItems: 'start center', paddingTop: 100 },
+  palette: { width: 'min(92vw, 420px)', background: '#102033', border: '1px solid #36536e', borderRadius: 10, padding: 16, display: 'flex', flexDirection: 'column', gap: 8, color: '#e5eef8', boxShadow: '0 20px 60px rgba(0,0,0,0.35)' },
+  paletteItem: { textAlign: 'left', border: '1px solid #29415b', background: '#0d1a2a', color: '#d7e5f2', borderRadius: 6, padding: 9, cursor: 'pointer' },
   mobileMenuToggle: {
     display: 'none',
     border: 'none',
