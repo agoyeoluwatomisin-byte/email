@@ -132,15 +132,6 @@ export default function Inbox() {
     ? [...mailbox.activeThread].reverse().find((message) => message.direction === 'inbound')
     : null;
 
-  const handleRailToggle = () =>
-    setRailCollapsed((value) => {
-      const next = !value;
-      try {
-        localStorage.setItem('mail_rail_collapsed', String(next));
-      } catch (error) {}
-      return next;
-    });
-
   const handleFiltersApply = () => mailbox.load({ filters: mailbox.filters });
   const handleFiltersClear = () => {
     const next = { dateFrom: '', dateTo: '', senderDomain: '', read: '' };
@@ -251,7 +242,6 @@ export default function Inbox() {
         setDrawerOpen(false);
       }}
       collapsed={railCollapsed}
-      onToggle={handleRailToggle}
     />
   );
   const list = (

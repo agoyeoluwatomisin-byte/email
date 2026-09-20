@@ -483,6 +483,18 @@ body[data-theme='dark'] {
 .app-bottom-nav { display: none; }
 .app-frame { min-height: 100vh; margin-left: 220px; background: var(--app-bg); color: var(--app-text); transition: margin-left 0.2s ease; }
 .app-frame[data-rail-collapsed='true'] { margin-left: 68px; }
+
+/* Below 1100px the mail folder rail auto-collapses to icons only (see the
+   .mail-app breakpoint further down). Force the app rail to match that same
+   width here, regardless of the user's manual collapse toggle, so the two
+   side-by-side rails never end up two different widths at once. */
+@media (max-width: 1099px) {
+  .app-rail { width: 68px; }
+  .app-rail-wordmark,
+  .app-rail-label { display: none; }
+  .app-frame,
+  .app-frame[data-rail-collapsed='true'] { margin-left: 68px; }
+}
 .app-topbar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; justify-content: space-between; min-height: 64px; padding: 10px 24px; background: color-mix(in srgb, var(--app-surface) 92%, transparent); border-bottom: 1px solid var(--app-border); backdrop-filter: blur(14px); }
 .app-breadcrumb-title { font-size: 15px; font-weight: 750; text-transform: capitalize; }
 .app-topbar-actions { display: flex; align-items: center; gap: 8px; }
@@ -506,6 +518,11 @@ body[data-theme='dark'] {
 .app-popover-header button { border: 0; background: transparent; color: var(--app-accent); cursor: pointer; font-size: 12px; }
 .app-popover-empty { margin: 18px 0 4px; color: var(--app-muted); font-size: 13px; }
 .page-shell { min-height: calc(100vh - 64px); padding: 24px 28px 40px; background: var(--app-bg) !important; color: var(--app-text); }
+/* Inbox/Sent/Drafts/Archive/Spam/All mail all render the same .mail-app
+   3-pane shell. It manages its own internal spacing and rails, so strip the
+   generic page padding here — otherwise you get padding around the mail
+   rail AND padding again inside it, which is what was reading as clutter. */
+.page-shell:has(.mail-app) { padding: 0 !important; }
 .palette-backdrop { position: fixed; inset: 0; z-index: 60; display: grid; place-items: start center; padding-top: 12vh; background: rgba(2, 6, 23, 0.58); }
 .command-palette { width: min(560px, calc(100vw - 32px)); padding: 10px; border: 1px solid var(--app-border-strong); border-radius: var(--app-radius-md); background: var(--app-surface); box-shadow: var(--app-shadow); }
 .command-palette input { width: 100%; padding: 12px; border: 1px solid var(--app-border); border-radius: var(--app-radius-sm); background: var(--app-surface-raised); color: var(--app-text); }
@@ -653,7 +670,7 @@ body[data-theme='dark'] {
   outline: 0;
 }
 .mail-rail {
-  background: var(--mail-rail);
+  background: var(--mail-surface);
   border-right: 1px solid var(--mail-border);
   padding: var(--mail-space-4) var(--mail-space-2);
   overflow: auto;

@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import MailIcon from './MailIcon';
 
 const icons = {
@@ -19,23 +18,11 @@ export default function FolderRail({
   onFolder,
   onMailbox,
   collapsed,
-  onToggle,
 }) {
   return (
     <nav className="mail-rail" aria-label="Mailbox folders">
       <div className="mail-rail-header">
-        <Link href="/" className="mail-compose-button" aria-label="Compose new email">
-          <MailIcon name="send" size={17} />
-          <span>Compose</span>
-        </Link>
-        <button
-          className="mail-icon-button"
-          type="button"
-          onClick={onToggle}
-          aria-label={collapsed ? 'Expand folders' : 'Collapse folders'}
-        >
-          {collapsed ? '»' : '«'}
-        </button>
+        <span className="mail-rail-title">Mail</span>
       </div>
       <div className="mail-rail-section">
         <div className="mail-rail-label">Folders</div>
@@ -46,6 +33,7 @@ export default function FolderRail({
             key={folder.value}
             aria-current={selectedFolder === folder.value ? 'page' : undefined}
             onClick={() => onFolder(folder.value)}
+            title={collapsed ? folder.label : undefined}
           >
             <span className="mail-folder-icon">
               <MailIcon name={icons[folder.value] || 'mail'} size={17} />
@@ -62,6 +50,7 @@ export default function FolderRail({
           type="button"
           aria-current={selectedMailbox === 'all' ? 'page' : undefined}
           onClick={() => onMailbox('all')}
+          title={collapsed ? 'All mailboxes' : undefined}
         >
           <span className="mail-folder-icon">
             <MailIcon name="inbox" size={17} />
@@ -75,6 +64,7 @@ export default function FolderRail({
             key={mailbox.value}
             aria-current={selectedMailbox === mailbox.value ? 'page' : undefined}
             onClick={() => onMailbox(mailbox.value)}
+            title={collapsed ? mailbox.label : undefined}
           >
             <span className="mail-folder-icon">
               <span className="mail-mailbox-dot" style={{ '--mailbox-color': mailbox.color }} />
