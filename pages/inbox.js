@@ -11,10 +11,12 @@ import BulkBar from '../components/BulkBar';
 import ThreadHeader from '../components/ThreadHeader';
 import ThreadList from '../components/ThreadList';
 import useMailbox from '../hooks/useMailbox';
+import { useAppSession } from '../context/AppSessionProvider';
 
 export default function Inbox() {
   const router = useRouter();
-  const [currentUser, setCurrentUser] = useState('');
+  const { user } = useAppSession();
+  const currentUser = user?.email || '';
   const [railCollapsed, setRailCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -37,13 +39,7 @@ export default function Inbox() {
   });
 
   useEffect(() => {
-    try {
-      const session = JSON.parse(localStorage.getItem('email_session') || '{}');
-      setCurrentUser(session.email || '');
-      setRailCollapsed(localStorage.getItem('mail_rail_collapsed') === 'true');
-    } catch (error) {
-      setCurrentUser('');
-    }
+    setRailCollapsed(localStorage.getItem('mail_rail_collapsed') === 'true');
   }, []);
 
   useEffect(() => {

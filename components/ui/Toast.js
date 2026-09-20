@@ -10,7 +10,20 @@ export default function ToastProvider({ children }) {
     setTimeout(() => setItems((current) => current.filter((item) => item.id !== id)), 4000);
   };
   const value = useMemo(() => ({ toast }), []);
-  return <ToastContext.Provider value={value}>{children}<div className="ui-toast-region" aria-live="polite">{items.map((item) => <div className={`ui-toast ui-toast-${item.tone}`} key={item.id}>{item.message}</div>)}</div></ToastContext.Provider>;
+  return (
+    <ToastContext.Provider value={value}>
+      {children}
+      <div className="ui-toast-region" aria-live="polite">
+        {items.map((item) => (
+          <div className={`ui-toast ui-toast-${item.tone}`} key={item.id}>
+            {item.message}
+          </div>
+        ))}
+      </div>
+    </ToastContext.Provider>
+  );
 }
 
-export function useToast() { return useContext(ToastContext); }
+export function useToast() {
+  return useContext(ToastContext);
+}

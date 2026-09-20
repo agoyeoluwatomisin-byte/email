@@ -1,8 +1,10 @@
 import { useRouter } from 'next/router';
 import { useState } from 'react';
+import { useAppSession } from '../context/AppSessionProvider';
 
 export default function LoginPage() {
   const router = useRouter();
+  const { refresh } = useAppSession();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -27,7 +29,7 @@ export default function LoginPage() {
         return;
       }
 
-      localStorage.setItem('email_session', JSON.stringify({ email: data.user.email }));
+      await refresh();
       router.push('/dashboard');
     } catch (requestError) {
       setError('Unable to sign in right now.');
@@ -37,14 +39,14 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="login-page" style={styles.wrapper}>
-      <div className="login-card" style={styles.card}>
+    <main style={styles.wrapper}>
+      <div style={styles.card}>
         <div style={styles.header}>
           <div style={styles.brand}>Email Portal</div>
           <h1 style={styles.title}>Sign in</h1>
         </div>
 
-        <form className="login-form" onSubmit={handleSubmit} style={styles.form}>
+        <form style={styles.form} onSubmit={handleSubmit}>
           <label style={styles.label} htmlFor="email">
             Email address
           </label>
@@ -58,7 +60,7 @@ export default function LoginPage() {
             required
           />
 
-          <label className="label" style={styles.label} htmlFor="twoFactorCode">
+          <label style={styles.label} htmlFor="twoFactorCode">
             Authenticator code (if enabled)
           </label>
           <input
@@ -92,7 +94,7 @@ export default function LoginPage() {
           </button>
         </form>
       </div>
-    </div>
+    </main>
   );
 }
 
@@ -102,53 +104,39 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: 'linear-gradient(135deg, #020817 0%, #0f172a 50%, #111827 100%)',
+    background: 'var(--app-bg)',
+    color: 'var(--app-text)',
     padding: '24px',
-    fontFamily: 'system-ui, -apple-system, sans-serif',
+    fontFamily: 'var(--app-font, ui-sans-serif, system-ui, sans-serif)',
   },
   card: {
     width: '100%',
     maxWidth: 420,
-    background: 'rgba(15, 23, 42, 0.9)',
-    border: '1px solid rgba(148, 163, 184, 0.22)',
-    borderRadius: 18,
+    background: 'var(--app-surface)',
+    border: '1px solid var(--app-border)',
+    borderRadius: 'var(--app-radius-lg)',
     padding: '28px 24px',
-    boxShadow: '0 24px 48px rgba(2, 6, 23, 0.45)',
+    boxShadow: 'var(--app-shadow)',
   },
-  header: {
-    marginBottom: 24,
-  },
+  header: { marginBottom: 24 },
   brand: {
     fontSize: 12,
     letterSpacing: '0.18em',
     textTransform: 'uppercase',
-    color: '#94a3b8',
+    color: 'var(--app-muted)',
     marginBottom: 8,
   },
-  title: {
-    margin: 0,
-    color: '#f8fafc',
-    fontSize: 32,
-    fontWeight: 700,
-  },
-  form: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 12,
-  },
-  label: {
-    color: '#cbd5e1',
-    fontSize: 14,
-    fontWeight: 600,
-  },
+  title: { margin: 0, color: 'var(--app-text)', fontSize: 32, fontWeight: 700 },
+  form: { display: 'flex', flexDirection: 'column', gap: 12 },
+  label: { color: 'var(--app-text)', fontSize: 14, fontWeight: 600 },
   input: {
     width: '100%',
     padding: '12px 14px',
-    borderRadius: 10,
-    border: '1px solid rgba(148, 163, 184, 0.4)',
+    borderRadius: 'var(--app-radius-sm)',
+    border: '1px solid var(--app-border)',
     outline: 'none',
-    background: '#0f172a',
-    color: '#f8fafc',
+    background: 'var(--app-surface-raised)',
+    color: 'var(--app-text)',
     boxSizing: 'border-box',
     fontSize: 15,
   },
@@ -156,9 +144,9 @@ const styles = {
     marginTop: 8,
     padding: '12px 16px',
     border: 'none',
-    borderRadius: 10,
-    background: '#38bdf8',
-    color: '#082f49',
+    borderRadius: 'var(--app-radius-sm)',
+    background: 'var(--app-accent)',
+    color: '#fff',
     fontSize: 15,
     fontWeight: 700,
     cursor: 'pointer',
@@ -166,10 +154,10 @@ const styles = {
   error: {
     marginTop: 6,
     padding: '10px 12px',
-    borderRadius: 8,
-    background: 'rgba(239, 68, 68, 0.12)',
-    border: '1px solid rgba(239, 68, 68, 0.42)',
-    color: '#fca5a5',
+    borderRadius: 'var(--app-radius-sm)',
+    background: 'color-mix(in srgb, var(--app-danger) 16%, transparent)',
+    border: '1px solid color-mix(in srgb, var(--app-danger) 45%, transparent)',
+    color: 'var(--app-danger)',
     fontSize: 14,
   },
 };
