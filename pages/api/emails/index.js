@@ -59,13 +59,20 @@ export default async function handler(req, res) {
     }
   }
 
-  const { data, error } = await query
+  let { data, error } = await query
     .order('received_at', { ascending: false })
     .limit(Math.min(Math.max(Number(limit) || 300, 1), 500));
 
   if (error) {
-    console.error('Failed to load emails:', error);
-    return res.status(500).json({ error: 'Failed to load emails' });
+    if (isMissingOrganizingColumn(error)) {
+      const legacyResult = await loadLegacyEmails(req.query || {});
+      data = legacyResult.data;
+      error = legacyResult.error;
+    }
+    if (error) {
+      console.error('Failed to load emails:', error);
+      return res.status(500).json({ error: 'Failed to load emails' });
+    }
   }
 
   const messageIds = (data || []).map((email) => email.message_id).filter(Boolean);
@@ -82,6 +89,27 @@ export default async function handler(req, res) {
       deliveryStatus: latestEvents.get(email.message_id)?.event_type || null,
     })),
   });
+}
+
+async function loadLegacyEmails(params) {
+  let legacyQuery = supabaseAdmin.from('emails').select('*');
+  if (params.direction) legacyQuery = legacyQuery.eq('direction', params.direction);
+  if (params.starred === 'true') legacyQuery = legacyQuery.eq('starred', true);
+  if (params.read === 'true' || params.read === 'false') legacyQuery = legacyQuery.eq('read', params.read === 'true');
+  const result = await legacyQuery.order('received_at', { ascending: false }).limit(Math.min(Math.max(Number(params.limit) || 300, 1), 500));
+  if (result.error) return result;
+  const folder = params.folder;
+  const filtered = (result.data || []).filter((email) => {
+    if (folder && folder !== 'all' && folder !== 'starred' && folder !== 'sent' && email.folder !== folder) return false;
+    if (params.senderDomain && !String(email.sender_domain || '').toLowerCase().includes(String(params.senderDomain).toLowerCase())) return false;
+    return true;
+  });
+  return { data: filtered, error: null };
+}
+
+function isMissingOrganizingColumn(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return message.includes('deleted_at') || message.includes('search_vector') || error?.code === '42703';
 }
 
 function normalizeAttachments(value) {

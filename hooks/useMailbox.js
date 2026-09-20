@@ -33,7 +33,15 @@ export default function useMailbox({ mode = 'inbox', currentUser = '', selectedT
     if (currentFilters.senderDomain.trim()) query.set('senderDomain', currentFilters.senderDomain.trim());
     if (currentFilters.read) query.set('read', currentFilters.read);
     const response = await fetch(`/api/emails?${query.toString()}`);
-    const data = await response.json();
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setEmails([]);
+      setUnreadThreadIds([]);
+      setActionError(data.error || `Unable to load messages (${response.status}).`);
+      setLoading(false);
+      return;
+    }
+    setActionError('');
     const loadedEmails = (data.emails || []).map((email) => ({ ...email, label: email.label || 'other', mailboxAddresses: parseMailboxAddresses(email.to_address), attachments: Array.isArray(email.attachments) ? email.attachments : [] }));
     if (mode === 'inbox') {
       const threadResponse = await fetch('/api/threads');

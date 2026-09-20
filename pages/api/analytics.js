@@ -4,10 +4,15 @@ import { requireSession } from '../../lib/auth';
 export default async function handler(req, res) {
   const session = await requireSession(req, res);
   if (!session) return;
-  const from = new Date(String(req.query?.from || Date.now() - 30 * 24 * 60 * 60 * 1000));
-  const to = new Date(String(req.query?.to || Date.now()));
+  const from = parseDate(req.query?.from, Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const to = parseDate(req.query?.to, Date.now());
   if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || to < from) return res.status(400).json({ error: 'Invalid date range.' });
-  const { data: emails, error } = await supabaseAdmin.from('emails').select('direction, label, received_at, from_address, thread_id, first_response_at, resolved_at').gte('received_at', from.toISOString()).lte('received_at', to.toISOString()).limit(10000);
+  let { data: emails, error } = await supabaseAdmin.from('emails').select('direction, label, received_at, from_address, thread_id, first_response_at, resolved_at').gte('received_at', from.toISOString()).lte('received_at', to.toISOString()).limit(10000);
+  if (error && isMissingAnalyticsColumn(error)) {
+    const fallback = await supabaseAdmin.from('emails').select('direction, label, received_at, from_address, thread_id').gte('received_at', from.toISOString()).lte('received_at', to.toISOString()).limit(10000);
+    emails = fallback.data;
+    error = fallback.error;
+  }
   if (error) return res.status(500).json({ error: 'Failed to load analytics.' });
   const { data: csat } = await supabaseAdmin.from('csat_responses').select('rating').gte('created_at', from.toISOString()).lte('created_at', to.toISOString());
   const volume = {};
@@ -40,6 +45,15 @@ export default async function handler(req, res) {
 }
 
 function average(values) { return values.length ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length) : null; }
+function parseDate(value, fallback) {
+  const candidate = Array.isArray(value) ? value[0] : value;
+  const date = candidate ? new Date(String(candidate)) : new Date(fallback);
+  return Number.isNaN(date.getTime()) ? new Date(fallback) : date;
+}
+function isMissingAnalyticsColumn(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return error?.code === '42703' || message.includes('first_response_at') || message.includes('resolved_at');
+}
 function median(values) {
   if (!values.length) return null;
   const sorted = [...values].sort((a, b) => a - b);

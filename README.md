@@ -30,6 +30,8 @@ Apply these SQL files in order in the Supabase SQL editor:
 17. `supabase/feature-18-integrations-widget.sql`
 18. `supabase/feature-19-weekly-reports.sql`
 
+The deployed database must have these migrations applied as well as the app code. In particular, `feature-14-organizing.sql` creates `notifications` and adds the email trash/search columns. The APIs include compatibility fallbacks for older schemas, but applying the migrations is required for the full feature set.
+
 Do not run `feature-09-admin-user.example.sql` unchanged. It is a template only.
 
 ## Environment
