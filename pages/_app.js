@@ -66,6 +66,63 @@ function AppContent({ Component, pageProps }) {
   }, []);
 
   useEffect(() => {
+  if (!isAuthenticated || typeof window === 'undefined') return undefined;
+
+  let cleanupFns = [];
+
+  (async () => {
+    try {
+      const { Capacitor } = await import('@capacitor/core');
+      if (!Capacitor.isNativePlatform()) return;
+
+      const { PushNotifications } = await import('@capacitor/push-notifications');
+
+      const registrationListener = await PushNotifications.addListener('registration', async ({ value: token }) => {
+        try {
+          await fetch('/api/push/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token, platform: Capacitor.getPlatform() }),
+          });
+        } catch (error) {
+          console.error('Failed to register push token:', error);
+        }
+      });
+      cleanupFns.push(() => registrationListener.remove());
+
+      const errorListener = await PushNotifications.addListener('registrationError', (error) => {
+        console.error('Push registration error:', error);
+      });
+      cleanupFns.push(() => errorListener.remove());
+
+      const receivedListener = await PushNotifications.addListener('pushNotificationReceived', (notification) => {
+        // Foreground notification while the app is open — surface a toast, refresh inbox, etc.
+        console.log('Push received in foreground:', notification);
+      });
+      cleanupFns.push(() => receivedListener.remove());
+
+      const actionListener = await PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
+        const threadId = action.notification?.data?.threadId;
+        if (threadId) router.push(`/inbox?thread=${threadId}`);
+      });
+      cleanupFns.push(() => actionListener.remove());
+
+      let permStatus = await PushNotifications.checkPermissions();
+      if (permStatus.receive === 'prompt') {
+        permStatus = await PushNotifications.requestPermissions();
+      }
+      if (permStatus.receive === 'granted') {
+        await PushNotifications.register();
+      }
+    } catch (error) {
+      console.error('Push notification setup failed:', error);
+    }
+  })();
+
+  return () => cleanupFns.forEach((fn) => fn());
+}, [isAuthenticated, router]);
+
+  useEffect(() => {
     if (typeof window === 'undefined') return;
     document.body.dataset.theme = isDarkMode ? 'dark' : 'light';
     localStorage.setItem('email_theme', isDarkMode ? 'dark' : 'light');

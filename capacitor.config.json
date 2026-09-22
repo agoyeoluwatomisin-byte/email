@@ -1,0 +1,8 @@
+{
+  "appId": "com.wimpy.email",
+  "appName": "com.wimpy.email",
+  "webDir": "public",
+  "server": {
+    "url": "https://email.agosoft.com.ng"
+  }
+}

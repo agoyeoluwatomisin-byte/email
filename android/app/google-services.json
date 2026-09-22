@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "456346468505",
+    "project_id": "wimpy-52e0b",
+    "storage_bucket": "wimpy-52e0b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:456346468505:android:57959b62bab9ab867ab808",
+        "android_client_info": {
+          "package_name": "com.wimpy.email"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBdTe4NJ66kOKOGRGT2TKfHu6omVSEnZx8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

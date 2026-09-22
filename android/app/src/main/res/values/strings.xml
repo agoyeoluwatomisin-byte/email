@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">com.wimpy.email</string>
+    <string name="title_activity_main">com.wimpy.email</string>
+    <string name="package_name">com.wimpy.email</string>
+    <string name="custom_url_scheme">com.wimpy.email</string>
+</resources>
