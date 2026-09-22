@@ -124,11 +124,13 @@ export default function useMailbox({
       thread.sort((a, b) => new Date(a.received_at) - new Date(b.received_at)),
     );
     const folderFiltered =
-      selectedFolder === 'all' || (mode === 'outbox' && selectedFolder === 'sent')
+      selectedFolder === 'all'
         ? values
         : selectedFolder === 'starred'
           ? values.filter((thread) => thread.some((message) => message.starred))
-          : values.filter((thread) => (thread[0].folder || 'inbox') === selectedFolder);
+          : selectedFolder === 'sent'
+            ? values.filter((thread) => thread.some((message) => message.direction === 'outbound'))
+            : values.filter((thread) => (thread[0].folder || 'inbox') === selectedFolder);
     return folderFiltered.filter(
       (thread) =>
         selectedMailbox === 'all' ||
