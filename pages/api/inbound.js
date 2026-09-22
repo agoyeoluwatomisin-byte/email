@@ -197,40 +197,7 @@ export default async function handler(req, res) {
 
   await notifyInboundEmail({ from, to, subject, text, threadId });
   await notifyOutboundWebhook({ from, to, subject, threadId });
-  await sendPushToUsers({ from, to, subject, threadId });
-
-  async function notifyPushForInboundEmail({ from, to, subject, threadId, assignedUser }) {
-  try {
-    let targetUserIds = [];
-
-    if (assignedUser) {
-      const { data: user } = await supabaseAdmin
-        .from('users')
-        .select('id')
-        .eq('email', assignedUser)
-        .maybeSingle();
-      if (user?.id) targetUserIds = [user.id];
-    }
-
-    // No one specifically assigned: notify every active agent watching this mailbox.
-    if (!targetUserIds.length) {
-      const { data: users } = await supabaseAdmin.from('users').select('id').eq('active', true);
-      targetUserIds = (users || []).map((user) => user.id);
-    }
-
-    if (!targetUserIds.length) return;
-
-    const senderName = String(from).match(/^([^<]+)</)?.[1]?.trim() || from;
-
-    await sendPushToUsers(targetUserIds, {
-      title: subject ? String(subject).slice(0, 120) : 'New email',
-      body: `From ${senderName} to ${to}`,
-      data: { threadId, type: 'inbound_email' },
-    });
-  } catch (error) {
-    console.error('Push notification for inbound email failed:', error);
-  }
-}
+  await notifyPushForInboundEmail({ from, to, subject, threadId, assignedUser });
 
   if (assignedUser)
     await supabaseAdmin
@@ -267,6 +234,39 @@ async function notifyOutboundWebhook(payload) {
     });
   } catch (error) {
     console.error('Outbound webhook failed:', error);
+  }
+}
+
+async function notifyPushForInboundEmail({ from, to, subject, threadId, assignedUser }) {
+  try {
+    let targetUserIds = [];
+
+    if (assignedUser) {
+      const { data: user } = await supabaseAdmin
+        .from('users')
+        .select('id')
+        .eq('email', assignedUser)
+        .maybeSingle();
+      if (user?.id) targetUserIds = [user.id];
+    }
+
+    // No one specifically assigned: notify every active agent watching this mailbox.
+    if (!targetUserIds.length) {
+      const { data: users } = await supabaseAdmin.from('users').select('id').eq('active', true);
+      targetUserIds = (users || []).map((user) => user.id);
+    }
+
+    if (!targetUserIds.length) return;
+
+    const senderName = String(from).match(/^([^<]+)</)?.[1]?.trim() || from;
+
+    await sendPushToUsers(targetUserIds, {
+      title: subject ? String(subject).slice(0, 120) : 'New email',
+      body: `From ${senderName} to ${to}`,
+      data: { threadId, type: 'inbound_email' },
+    });
+  } catch (error) {
+    console.error('Push notification for inbound email failed:', error);
   }
 }
 
